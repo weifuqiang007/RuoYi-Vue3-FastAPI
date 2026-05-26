@@ -279,6 +279,7 @@ class GetConfig:
         # 实例上传配置
         return UploadSettings()
 
+    # 参数解析
     @staticmethod
     def parse_cli_args() -> None:
         """
@@ -305,8 +306,8 @@ class GetConfig:
             os.environ['APP_ENV'] = args.env if args.env else 'dev'
         # 读取运行环境
         run_env = os.environ.get('APP_ENV', '')
-        # 运行环境未指定时默认加载.env.dev
-        env_file = '.env.dev'
+        # 运行环境未指定时默认加载.env.test
+        env_file = '.env.test'
         # 运行环境不为空时按命令行参数加载对应.env文件
         if run_env != '':
             env_file = f'.env.{run_env}'
