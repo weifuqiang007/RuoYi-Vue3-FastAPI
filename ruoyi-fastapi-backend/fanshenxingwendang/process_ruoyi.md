@@ -4,11 +4,14 @@
 
 | 项目信息 | |
 |---|---|
-| 文档版本 | v1.0 |
-| 编写日期 | 2026年5月25日 |
+| 文档版本 | v1.1 |
+| 编写日期 | 2026年5月26日 |
 | 基础框架 | RuoYi-Vue3-FastAPI v1.9.0 |
-| 数据库 | PostgreSQL 15+ |
-| 项目仓库 | /Users/weifuqiang/Desktop/zhangyichi/RuoYi-Vue3-FastAPI (dev 分支) |
+| 数据库 | PostgreSQL 15+（含 PgVector 扩展） |
+| 项目仓库 | 以下三套环境均可运行： |
+| | - 公司 Windows：`g:\zhangyichi\ruoyi-fastapi-backend`（当前主力开发） |
+| | - Mac 个人：`/Users/weifuqiang/Desktop/zhangyichi/RuoYi-Vue3-FastAPI`（dev 分支） |
+| | - 家里 Windows：待补充 |
 
 ---
 
@@ -61,6 +64,20 @@ module_{module_name}/
     └── {table}_service.py
 ```
 
+**Controller 编写规范**（参考 `module_admin/controller` 或 `module_ai/controller`）：
+- Controller 类需继承 `APIRouterPro`，路由通过 `auto_register_routers` 自动发现和注册
+- 路由函数使用 `@log`、`@requires`、`@ValidateFields` 等装饰器进行日志记录、权限校验和参数验证
+- 依赖注入通过 `Depends` 获取数据库会话（`AsyncSession`）、当前用户信息（`CurrentUserModel`）等
+
+**DAO 编写规范**（参考 `module_admin/dao`）：
+- 纯 SQLAlchemy async 查询，不包含业务逻辑
+- 使用 `select`、`update`、`delete` 等构建查询
+- 分页查询使用 `PageUtil` 工具
+
+**新增模块时，先参考现有模块的具体写法**：
+- 简单 CRUD：参考 `module_admin/controller/notice_controller.py` → `service/notice_service.py` → `dao/notice_dao.py`
+- AI 相关：参考 `module_ai/controller/ai_chat_controller.py` → `service/ai_chat_service.py`
+
 前端对应结构：
 ```
 src/
@@ -71,13 +88,19 @@ src/
         └── index.vue
 ```
 
+**前端路由注册机制**：
+- 若依前端使用动态路由：后端 `sys_menu` 表中配置的菜单数据，在用户登录后由 `getRouters` 接口返回
+- 前端 `src/router/index.js` 中的 `loadView` 函数根据路由 `component` 字段动态加载 Vue 组件
+- 新增页面步骤：① 在后端 `sys_menu` 表插入菜单记录（含 `component` 字段指向 Vue 组件路径） ② 在 `src/views/` 下创建对应的 Vue 组件 ③ 在 `src/api/` 下创建对应的 API 调用文件
+- 路由 `component` 字段格式示例：`learning/scenario/index` → 对应 `src/views/learning/scenario/index.vue`
+
 ---
 
 ## 二、第一阶段：基础改造 + 情境区 + 决策区
 
 **目标**：在若依框架上完成角色体系改造，实现情境区和决策区的完整功能。
 
-**预计工期**：4-6 周
+**预计工期**：6-8 周
 
 ---
 
@@ -108,6 +131,7 @@ CREATE TABLE edu_student_profile (
     class_id      BIGINT REFERENCES sys_dept(dept_id),           -- 所属班级（复用部门体系）
     major         VARCHAR(100),                                   -- 专业
     grade         VARCHAR(20),                                    -- 年级
+    del_flag      CHAR(1) DEFAULT '0',                            -- 删除标志（0存在 1删除）
     created_by    VARCHAR(64) DEFAULT '',
     create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_by     VARCHAR(64) DEFAULT '',
@@ -123,6 +147,7 @@ CREATE TABLE edu_teacher_profile (
     department_id BIGINT REFERENCES sys_dept(dept_id),           -- 所属院系
     title         VARCHAR(50),                                    -- 职称
     research_area VARCHAR(200),                                   -- 研究方向
+    del_flag      CHAR(1) DEFAULT '0',                            -- 删除标志（0存在 1删除）
     created_by    VARCHAR(64) DEFAULT '',
     create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_by     VARCHAR(64) DEFAULT '',
@@ -205,7 +230,7 @@ COMMENT ON TABLE edu_registration_audit IS '注册审核表';
 ```
 用户填写注册信息（用户名/密码/邮箱 + 选择角色：student/teacher + 真实姓名/单位）
     ↓
-后端创建 sys_user 记录（状态为停用 is_active='1'）
+后端创建 sys_user 记录（状态为停用 status='1'，若依约定：'0' 正常，'1' 停用）
     ↓
 写入 edu_registration_audit 表（audit_status='0' 待审核）
     ↓
@@ -213,7 +238,7 @@ COMMENT ON TABLE edu_registration_audit IS '注册审核表';
     ↓
 管理员在审核管理页面查看 → 通过/拒绝
     ↓
-通过 → 激活用户（is_active='0'） + 分配对应角色（sys_user_role）
+通过 → 激活用户（status='0'） + 写入 sys_user_role 关联表分配对应角色
 拒绝 → 记录拒绝原因，用户无法登录
 ```
 
@@ -234,42 +259,23 @@ if audit and audit.audit_status == '2':
 
 ### Phase 1.2：知识库基础设施建设
 
-#### 1.2.1 向量数据库集成
+#### 1.2.1 向量数据库集成（PgVector）
 
-**新增 Docker 服务**：在 `docker-compose.pg.yml` 中新增 Milvus 向量数据库。
+**MVP 阶段使用 PgVector**（PostgreSQL 原生向量扩展），无需额外部署服务。
 
-```yaml
-# docker-compose.pg.yml 新增
-milvus-etcd:
-  image: quay.io/coreos/etcd:v3.5.5
-  environment:
-    - ETCD_AUTO_COMPACTION_MODE=revision
-    - ETCD_AUTO_COMPACTION_RETENTION=1000
-  volumes:
-    - milvus-etcd:/etcd
+**选型理由**：
+- 本项目为高等教育教学系统，同时在线用户量级在百人以内，PgVector 完全满足需求
+- 无需额外部署 Milvus + etcd + MinIO 三件套，大幅降低运维复杂度
+- 与现有 PostgreSQL 共享实例，零额外部署成本
+- 后期若服务量上升，可平滑迁移至 Milvus（接口抽象层已预留）
 
-milvus-minio:
-  image: minio/minio:latest
-  environment:
-    MINIO_ACCESS_KEY: minioadmin
-    MINIO_SECRET_KEY: minioadmin
-  volumes:
-    - milvus-minio:/minio_data
-  command: minio server /minio_data
+**启用方式**：在 PostgreSQL 中执行：
 
-milvus-standalone:
-  image: milvusdb/milvus:v2.3.4
-  environment:
-    ETCD_ENDPOINTS: milvus-etcd:2379
-    MINIO_ADDRESS: milvus-minio:9000
-  ports:
-    - "19530:19530"
-  volumes:
-    - milvus-data:/var/lib/milvus
-  depends_on:
-    - milvus-etcd
-    - milvus-minio
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 ```
+
+**未来迁移路径**：当数据量超过百万级向量或并发检索需求增大时，可切换到 Milvus。RAG 模块的检索接口已做抽象设计（`retrieval_service.py`），切换实现无需改动上层代码。
 
 #### 1.2.2 RAG 模块开发
 
@@ -305,6 +311,7 @@ CREATE TABLE edu_knowledge_document (
     chunk_count   INTEGER DEFAULT 0,
     status        CHAR(1) DEFAULT '0',            -- 0待处理 1处理中 2已完成 3失败
     uploaded_by   BIGINT,
+    del_flag      CHAR(1) DEFAULT '0',              -- 删除标志（0存在 1删除）
     create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     remark        VARCHAR(500)
@@ -328,18 +335,26 @@ CREATE TABLE edu_knowledge_document_tag (
 COMMENT ON TABLE edu_knowledge_document_tag IS '文档-标签关联表';
 ```
 
-##### 向量数据库 Collection 设计
+##### 向量数据库表设计
 
-**Milvus Collection: edu_knowledge_chunks**
+**PgVector 表: edu_knowledge_chunks**（直接存储在 PostgreSQL 中）
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| chunk_id | VARCHAR(64) | 主键 |
-| doc_id | INT64 | 所属文档ID |
-| content | VARCHAR(2000) | 文本块内容 |
-| embedding | FLOAT_VECTOR(1024) | bge-large-zh 向量 |
-| chunk_index | INT32 | 文档内序号 |
-| source_type | VARCHAR(30) | 来源类型 |
+```sql
+CREATE TABLE edu_knowledge_chunks (
+    chunk_id      BIGSERIAL PRIMARY KEY,
+    doc_id        BIGINT NOT NULL REFERENCES edu_knowledge_document(doc_id),
+    content       TEXT NOT NULL,
+    embedding     vector(1024),                        -- 智谱/通义 Embedding API 输出维度
+    chunk_index   INTEGER NOT NULL,
+    source_type   VARCHAR(30),
+    create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE edu_knowledge_chunks IS '知识文档分块表（含向量）';
+
+-- 创建向量索引（IVFFlat，适合万级数据）
+CREATE INDEX idx_knowledge_chunks_embedding ON edu_knowledge_chunks
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
 
 ##### 核心功能
 
@@ -347,14 +362,14 @@ COMMENT ON TABLE edu_knowledge_document_tag IS '文档-标签关联表';
 知识入库流程：
   教师上传文档（PDF/Word/TXT）
       ↓
-  异步任务：文档解析 → 智能分块（500-1000字，重叠100字）→ bge-large-zh向量化 → 存入Milvus
+  异步任务：文档解析 → 智能分块（500-1000字，重叠100字）→ 调用 Embedding API 向量化 → 存入 PgVector
       ↓
   更新文档状态为"已完成"
 
 知识检索流程：
   用户输入（场景描述/反思文本/研究问题）
       ↓
-  输入向量化 → Milvus相似度检索 Top-10 → 可选Cross-Encoder精排 Top-5
+  输入向量化 → PgVector 余弦相似度检索 Top-10 → 可选 Cross-Encoder 精排 Top-5
       ↓
   将检索结果注入大模型Prompt → 生成专业回答
 ```
@@ -362,15 +377,17 @@ COMMENT ON TABLE edu_knowledge_document_tag IS '文档-标签关联表';
 #### 1.2.3 Python 依赖新增
 
 ```
-# requirements-pg.txt 新增
-pymilvus>=2.3.0
-langchain>=0.1.0
-langchain-community>=0.0.10
-sentence-transformers>=2.2.0
-PyMuPDF>=1.23.0
-python-docx>=1.0.0
-python-pptx>=0.6.21
+# requirements-pg.txt 新增（当前实际文件中尚无以下依赖，需手动添加）
+pgvector>=0.3.0                       # PgVector Python 驱动
+langchain>=0.1.0                      # 文档处理与 RAG 框架
+langchain-community>=0.0.10           # LangChain 社区组件
+PyMuPDF>=1.23.0                       # PDF 解析
+python-docx>=1.0.0                    # Word 文档解析
+python-pptx>=0.6.21                   # PPT 解析
+zhipuai>=2.0.0                        # 智谱 API SDK（Embedding 服务）
 ```
+
+> 注：`sentence-transformers` 和 `FlagEmbedding` 仅在后期本地部署 bge 模型时才需安装。
 
 ---
 
@@ -395,6 +412,7 @@ CREATE TABLE edu_task (
     research_config   JSONB,                      -- 研究区AI配置
     deadline      TIMESTAMP,
     status        CHAR(1) DEFAULT '0',             -- 0草稿 1已发布 2已关闭
+    del_flag      CHAR(1) DEFAULT '0',             -- 删除标志（0存在 1删除）
     create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -418,6 +436,7 @@ CREATE TABLE edu_learning_record (
     create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     submit_time   TIMESTAMP,
+    del_flag      CHAR(1) DEFAULT '0',              -- 删除标志（0存在 1删除）
     UNIQUE(task_id, student_id)                     -- 一个任务一条记录
 );
 COMMENT ON TABLE edu_learning_record IS '学习记录主表';
@@ -434,6 +453,7 @@ CREATE TABLE edu_scenario_data (
     followup_history JSONB,                          -- AI追问历史
     ai_analysis     JSONB,                           -- AI分析结果（问题界定、理论推荐等）
     status          CHAR(1) DEFAULT '0',              -- 0草稿 1已确认
+    del_flag        CHAR(1) DEFAULT '0',              -- 删除标志（0存在 1删除）
     create_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -596,6 +616,7 @@ CREATE TABLE edu_decision_data (
     expected_outcome TEXT,                            -- 预期结果
     actual_outcome   TEXT,                            -- 实际结果（事后补充）
     ethics_analysis  JSONB,                           -- AI伦理分析结果
+    del_flag         CHAR(1) DEFAULT '0',              -- 删除标志（0存在 1删除）
     create_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -813,7 +834,7 @@ class LearningRecordService:
 
 **目标**：完成四区闭环，建设教师管理端，实现完整的教与学流程。
 
-**预计工期**：6-8 周
+**预计工期**：10-12 周
 
 ---
 
@@ -838,6 +859,7 @@ CREATE TABLE edu_reflection_data (
     linked_theories JSONB,                           -- 关联的专业理论
     version        INTEGER DEFAULT 1,                 -- 迭代版本号
     status         CHAR(1) DEFAULT '0',               -- 0草稿 1已确认
+    del_flag       CHAR(1) DEFAULT '0',               -- 删除标志（0存在 1删除）
     create_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -1020,6 +1042,7 @@ CREATE TABLE edu_research_data (
     references       JSONB,                           -- 推荐文献列表
     logic_check      JSONB,                           -- AI逻辑审查结果
     status           CHAR(1) DEFAULT '0',              -- 0草稿 1已提交
+    del_flag         CHAR(1) DEFAULT '0',              -- 删除标志（0存在 1删除）
     create_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     submit_time      TIMESTAMP
@@ -1141,6 +1164,7 @@ CREATE TABLE edu_evaluation (
     research_score DECIMAL(5,2),                       -- 研究区评分
     feedback       TEXT,                               -- 文字反馈
     is_excellent   BOOLEAN DEFAULT FALSE,              -- 是否标记为优秀案例
+    del_flag       CHAR(1) DEFAULT '0',                -- 删除标志（0存在 1删除）
     create_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(record_id, teacher_id)
@@ -1178,6 +1202,7 @@ CREATE TABLE edu_alert (
     status         CHAR(1) DEFAULT '0',                 -- 0未处理 1已处理 2已忽略
     handled_by     BIGINT,                              -- 处理人
     handle_remark  TEXT,                                -- 处理备注
+    del_flag       CHAR(1) DEFAULT '0',                 -- 删除标志（0存在 1删除）
     create_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     handle_time    TIMESTAMP
 );
@@ -1247,58 +1272,138 @@ COMMENT ON TABLE edu_class_report IS '班级统计报告表';
 
 ### 4.1 AI 调用架构
 
-复用若依 `module_ai` 的现有架构，在其基础上扩展：
+若依 AI 模块基于 `agno` 框架实现，核心调用链路为：
 
 ```
-若依 AI 模块现有架构：
-  module_ai/
-  ├── controller/
-  │   ├── ai_model_controller.py     # 模型管理（已有）
-  │   └── ai_chat_controller.py      # AI对话（已有，SSE流式）
-  ├── entity/
-  ├── service/
-  │   ├── ai_model_service.py
-  │   └── ai_chat_service.py         # 基于agno框架的对话服务
-  └── ...
-
-扩展方案：
-  新增 module_learning/service/ai_engine.py  # 四区AI调度引擎
-    - 复用 ai_chat_service.py 的流式输出机制
-    - 复用 ai_model_service.py 的模型管理
-    - 新增：Prompt模板管理、RAG检索注入、深度评分
+Controller (ai_chat_controller.py)
+    → AiChatService.chat() / stream_chat()
+        → AiChatService._build_agent()
+            → AiUtil.get_model_from_factory()   # 根据 provider 构建模型
+            → Agent(model=..., db=storage, ...)  # agno Agent 对象
+        → agent.run() / agent.run_stream()       # 执行对话
 ```
+
+**关键组件说明**：
+- `AiUtil.get_model_from_factory()`：统一模型工厂，支持 DeepSeek / 智谱 / OpenAI / Ollama 等多种 Provider
+- `Agent`（agno）：管理对话上下文、历史消息、流式输出
+- `AiUtil.get_storage_engine()`：agno 对话持久化存储引擎
+- 模型配置存储在 `ai_models` 表中，通过后台界面管理 API Key、Base URL、温度等参数
+
+**四区 AI 引擎扩展方案**：
+
+```
+新增 module_learning/service/ai_engine.py  # 四区AI调度引擎（对 AiChatService 的封装层）
+```
+
+`ai_engine.py` 不重写对话管理，而是复用 `AiChatService` 的 Agent 构建和流式输出机制：
+
+```python
+from module_ai.service.ai_chat_service import AiChatService
+from module_ai.entity.vo.ai_model_vo import AiModelModel
+from module_ai.entity.vo.ai_chat_vo import AiChatRequestModel, AiChatConfigModel
+
+class ZoneAiEngine:
+    """四区专用AI调度引擎 — 封装 AiChatService，注入区域专用 Prompt 和 RAG 检索结果"""
+
+    @classmethod
+    async def analyze_scenario(cls, db, scenario_data: dict, retrieved_knowledge: str):
+        """情境区分析"""
+        system_prompt = SCENARIO_SYSTEM_PROMPT.format(retrieved_knowledge=retrieved_knowledge)
+        # 复用 AiChatService 的 Agent 构建机制
+        model_config = await AiModelDao.get_active_model(db, provider='deepseek')
+        agent = AiChatService._build_agent(
+            model_config=model_config,
+            temperature=0.3,
+            system_prompt=system_prompt,
+            user_id=...,
+            session_id=...,
+            add_history=True,
+            num_history=3,
+        )
+        # 执行并返回结构化结果
+        ...
+
+    @classmethod
+    async def ethics_analysis(cls, db, decision_data: dict, retrieved_ethics: str):
+        """决策区伦理分析"""
+        ...
+
+    @classmethod
+    async def reflection_questions(cls, db, reflection_data: dict, retrieved_knowledge: str):
+        """反思区结构化提问"""
+        ...
+
+    @classmethod
+    async def research_assist(cls, db, research_data: dict, retrieved_knowledge: str):
+        """研究生成区辅助"""
+        ...
+```
+
+**设计要点**：
+- 四区 AI 引擎是对 `AiChatService._build_agent()` 的封装，不是重写
+- 每个区域有独立的系统提示词模板，通过 `system_prompt` 参数注入
+- RAG 检索结果通过 Prompt 中的 `{retrieved_knowledge}` 占位符注入
+- 流式输出复用 `AiChatService` 已有的 SSE 机制，前端无需改造
 
 ### 4.2 大模型选型
 
-| 用途 | 推荐模型 | 说明 |
-|---|---|---|
-| 通用对话与分析 | DeepSeek-V3 API | 国内合规，中文能力强，性价比优 |
-| Embedding | bge-large-zh-v1.5（本地部署） | 中文文本向量化开源SOTA |
-| 重排序 | bge-reranker-large | Cross-Encoder精排 |
+**分阶段选型策略**：
+
+| 用途 | MVP 阶段 | 扩展阶段 | 说明 |
+|---|---|---|---|
+| 通用对话与分析 | DeepSeek-V3 API | 同左 | 国内合规，中文能力强，性价比优 |
+| Embedding（向量化） | 智谱 Embedding-3 API（按量付费） | bge-large-zh-v1.5 本地部署 | MVP 阶段无需 GPU，按量付费成本低 |
+| 重排序 | 暂不启用 | bge-reranker-large | 万级数据量下无需精排，相似度检索即可 |
+
+**Embedding API 选型说明**：
+- 智谱 Embedding-3：1024 维，中文能力强，100万 token 免费额度，超出后按量计费
+- 通义 text-embedding-v3：备选方案，1024 维，阿里云生态
+- MVP 阶段推荐智谱，因为若依 AI 模块已通过 agno 框架支持智谱 Provider
+
+**本地部署 bge 的前提条件**（扩展阶段）：
+- GPU 服务器：NVIDIA T4（16G 显存）或更高
+- 依赖安装：`sentence-transformers`、`FlagEmbedding`
+- 适用于数据量超过百万级、或需完全离线运行的场景
 
 ### 4.3 依赖新增汇总
 
 ```
 # Python 后端新增依赖（添加到 requirements-pg.txt）
-pymilvus>=2.3.0
-langchain>=0.1.0
-langchain-community>=0.0.10
-sentence-transformers>=2.2.0
-PyMuPDF>=1.23.0
-python-docx>=1.0.0
-python-pptx>=0.6.21
-FlagEmbedding>=1.2.0
+# 当前实际文件中尚无以下依赖，需手动添加
+
+# —— MVP 阶段必需 ——
+pgvector>=0.3.0                       # PgVector Python 驱动
+langchain>=0.1.0                      # 文档处理与 RAG 框架
+langchain-community>=0.0.10           # LangChain 社区组件
+PyMuPDF>=1.23.0                       # PDF 解析
+python-docx>=1.0.0                    # Word 文档解析
+python-pptx>=0.6.21                   # PPT 解析
+zhipuai>=2.0.0                        # 智谱 API SDK（Embedding 服务）
+
+# —— 扩展阶段（本地部署 bge 时安装） ——
+# sentence-transformers>=2.2.0       # 本地 Embedding 模型加载
+# FlagEmbedding>=1.2.0               # bge 模型
+# pymilvus>=2.3.0                    # 迁移到 Milvus 时安装
 ```
 
 ### 4.4 Docker 部署架构
 
+**MVP 阶段（当前）**：无需新增 Docker 服务，向量存储使用 PgVector（PostgreSQL 扩展）。
+
 ```
-docker-compose.pg.yml 扩展：
+docker-compose.pg.yml（无变更）：
 ├── nginx           （已有）
 ├── ruoyi-backend   （已有）
 ├── ruoyi-frontend  （已有）
-├── postgresql      （已有）
-├── redis           （已有）
+├── postgresql      （已有，启用 PgVector 扩展）
+└── redis           （已有）
+```
+
+**扩展阶段（如需迁移 Milvus）**：
+
+```
+docker-compose.pg.yml 扩展：
+├── ...（以上不变）
 ├── milvus-standalone （新增：向量数据库）
 ├── milvus-etcd      （新增：Milvus依赖）
 └── milvus-minio     （新增：Milvus存储）
@@ -1308,23 +1413,23 @@ docker-compose.pg.yml 扩展：
 
 ## 五、开发排期总览
 
-### 第一阶段（4-6 周）
+### 第一阶段（6-8 周）
 
 | 周次 | Phase | 核心交付 |
 |---|---|---|
-| 第1周 | Phase 1.1 | 环境搭建完成 + 角色体系改造 + 注册审核流程 |
-| 第2周 | Phase 1.2 | Milvus集成 + RAG模块基础功能 + 知识文档入库 |
-| 第3-4周 | Phase 1.3 | 情境区完整功能（前后端 + AI分析 + RAG检索） |
-| 第5-6周 | Phase 1.4 | 决策区完整功能 + 四区状态机引擎 |
+| 第1-2周 | Phase 1.1 | 环境搭建完成 + 角色体系改造 + 注册审核流程 + Alembic 迁移 |
+| 第3-4周 | Phase 1.2 | PgVector 集成 + RAG 模块基础功能 + 知识文档入库 + Embedding API 调通 |
+| 第5-6周 | Phase 1.3 | 情境区完整功能（前后端 + AI分析 + RAG检索） |
+| 第7-8周 | Phase 1.4 | 决策区完整功能 + 四区状态机引擎 |
 
-### 第二阶段（6-8 周）
+### 第二阶段（10-12 周）
 
 | 周次 | Phase | 核心交付 |
 |---|---|---|
-| 第7-9周 | Phase 2.1 | 反思区完整功能 + 深度评估算法 + 提问策略 |
-| 第10-11周 | Phase 2.2 | 研究生成区完整功能 |
-| 第12-14周 | Phase 2.3 | 教师管理端（任务管理 + 进度监控 + 评价反馈） |
-| 第15周 | Phase 2.4 | 警报系统 + 评价报告 + 知识库内容导入 |
+| 第9-11周 | Phase 2.1 | 反思区完整功能 + 深度评估算法 + 提问策略 |
+| 第12-13周 | Phase 2.2 | 研究生成区完整功能 |
+| 第14-18周 | Phase 2.3 | 教师管理端（任务管理 + 进度监控 + 评价反馈） |
+| 第19-20周 | Phase 2.4 | 警报系统 + 评价报告 + 知识库内容导入 + Prompt 版本管理 |
 
 ---
 
@@ -1332,7 +1437,7 @@ docker-compose.pg.yml 扩展：
 
 | 原 PRD 模块 | 本文档对应 | 状态 |
 |---|---|---|
-| 知识库管理模块 | Phase 1.2 | RAG模块 + Milvus |
+| 知识库管理模块 | Phase 1.2 | RAG模块 + PgVector |
 | 情境区（Scenario Zone） | Phase 1.3 | 完整实现 |
 | 决策区（Decision Zone） | Phase 1.4 | 完整实现 |
 | 反思区（Reflection Zone） | Phase 2.1 | 完整实现（含深度评估算法） |
@@ -1340,3 +1445,221 @@ docker-compose.pg.yml 扩展：
 | 教师管理端 | Phase 2.3 | 完整实现 |
 | 数据安全与合规 | 全程贯穿 | 复用若依RBAC + 数据隔离 + AI合规标注 |
 | 部署方案 | Phase 1.1 | 扩展 docker-compose.pg.yml |
+
+---
+
+## 七、数据库迁移策略（Alembic）
+
+项目已有 `alembic/` 目录和 `alembic.ini` 配置。所有 `edu_*` 表的创建和变更必须通过 Alembic 迁移脚本管理，而非手动执行 SQL。
+
+### 7.1 迁移工作流
+
+```bash
+# 1. 生成迁移脚本（在 alembic/versions/ 下自动创建文件）
+alembic revision --autogenerate -m "add edu tables for phase 1.1"
+
+# 2. 检查生成的迁移脚本，确认 up/down 方法正确
+
+# 3. 执行迁移
+alembic upgrade head
+
+# 4. 回滚（如需要）
+alembic downgrade -1
+```
+
+### 7.2 迁移脚本命名规范
+
+| Phase | 迁移脚本命名 | 说明 |
+|---|---|---|
+| Phase 1.1 | `add_edu_role_tables` | edu_student_profile, edu_teacher_profile, edu_registration_audit |
+| Phase 1.2 | `add_edu_knowledge_tables` | edu_knowledge_document, edu_knowledge_tag, edu_knowledge_document_tag, edu_knowledge_chunks, pgvector 扩展 |
+| Phase 1.3 | `add_edu_task_and_scenario_tables` | edu_task, edu_task_class, edu_learning_record, edu_scenario_data, edu_scenario_dialogue |
+| Phase 1.4 | `add_edu_decision_tables` | edu_decision_data, edu_decision_dialogue |
+| Phase 2.1 | `add_edu_reflection_tables` | edu_reflection_data, edu_reflection_dialogue, edu_reflection_depth_history |
+| Phase 2.2 | `add_edu_research_tables` | edu_research_data, edu_research_dialogue |
+| Phase 2.3 | `add_edu_teacher_tables` | edu_evaluation, edu_annotation, edu_alert, edu_class_report |
+
+### 7.3 注意事项
+
+- 每个 Phase 对应一个独立的迁移脚本，便于按阶段部署和回滚
+- PgVector 扩展的启用（`CREATE EXTENSION IF NOT EXISTS vector`）需在知识库迁移脚本中手动添加到 `upgrade()` 方法
+- 迁移脚本生成后务必检查：字段类型、外键约束、索引是否正确
+
+---
+
+## 八、测试策略
+
+### 8.1 后端测试
+
+**测试框架**：`pytest` + `pytest-asyncio` + `httpx`（FastAPI TestClient）
+
+**测试目录结构**：
+```
+tests/
+├── conftest.py                    # 公共 fixtures（数据库会话、测试用户、认证 token）
+├── test_api/
+│   ├── test_audit_api.py          # 注册审核接口测试
+│   ├── test_scenario_api.py       # 情境区接口测试
+│   ├── test_decision_api.py       # 决策区接口测试
+│   ├── test_reflection_api.py     # 反思区接口测试
+│   ├── test_research_api.py       # 研究生成区接口测试
+│   ├── test_teacher_api.py        # 教师端接口测试
+│   └── test_rag_api.py            # 知识库接口测试
+├── test_service/
+│   ├── test_reflection_depth.py   # 反思深度评估算法测试
+│   ├── test_zone_transition.py    # 四区状态机测试
+│   └── test_alert_rules.py        # 警报规则测试
+└── test_rag/
+    ├── test_document_parser.py    # 文档解析测试
+    ├── test_embedding.py          # 向量化测试
+    └── test_retrieval.py          # 检索测试
+```
+
+### 8.2 测试优先级
+
+| 优先级 | 测试内容 | Phase |
+|---|---|---|
+| P0 | 注册审核流程（注册→待审核→通过/拒绝→登录） | Phase 1.1 |
+| P0 | 四区状态机流转（正向+回溯+非法跳转拦截） | Phase 1.5 |
+| P0 | 权限隔离（学生只能看自己的数据） | Phase 1.1 |
+| P1 | 各区 CRUD 接口（创建/更新/查询/删除） | 各 Phase |
+| P1 | 反思深度评估算法准确性 | Phase 2.1 |
+| P2 | RAG 检索准确率 | Phase 1.2 |
+| P2 | 警报规则触发准确性 | Phase 2.3 |
+
+### 8.3 前端测试
+
+- 手动测试为主，重点验证四区交互流程和 AI 对话的 SSE 流式展示
+- 后期可引入 Cypress/Playwright 做关键路径的 E2E 测试
+
+---
+
+## 九、AI Prompt 版本管理
+
+### 9.1 设计方案
+
+各区域的 Prompt 模板需要版本化，支持教师自定义调整。
+
+**数据库新增表**：
+
+```sql
+-- Prompt模板表
+CREATE TABLE edu_prompt_template (
+    template_id   BIGSERIAL PRIMARY KEY,
+    zone          VARCHAR(20) NOT NULL,                -- scenario/decision/reflection/research
+    name          VARCHAR(100) NOT NULL,
+    system_prompt TEXT NOT NULL,
+    version       INTEGER DEFAULT 1,
+    is_default    BOOLEAN DEFAULT FALSE,               -- 是否为默认模板
+    created_by    BIGINT REFERENCES sys_user(user_id), -- 创建教师（NULL 表示系统内置）
+    status        CHAR(1) DEFAULT '0',                 -- 0草稿 1启用 2停用
+    del_flag      CHAR(1) DEFAULT '0',                 -- 删除标志（0存在 1删除）
+    create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    remark        VARCHAR(500)
+);
+COMMENT ON TABLE edu_prompt_template IS 'AI Prompt模板表';
+```
+
+### 9.2 Prompt 使用逻辑
+
+```
+教师创建任务时：
+  → 可选择每个区域使用哪个 Prompt 模板
+  → 存储在 edu_task 的 scenario_config / decision_config 等字段中
+  → 如果教师未指定，使用该区域 is_default=true 的模板
+
+四区 AI 引擎执行时：
+  → 读取当前任务的 zone_config，获取 template_id
+  → 从 edu_prompt_template 加载 system_prompt
+  → 注入 RAG 检索结果到占位符 {retrieved_knowledge}
+  → 构建 Agent 执行对话
+```
+
+### 9.3 版本管理规则
+
+- 系统内置默认模板（`created_by = NULL, is_default = true`），不可删除，可修改
+- 教师可复制默认模板创建自定义版本
+- 修改已有模板时自动递增 version 字段
+- 任务发布后关联的模板快照不再随模板更新而变化（通过 version 锁定）
+
+---
+
+## 十、文件上传与存储
+
+### 10.1 存储方案
+
+**MVP 阶段**：复用若依框架现有的文件上传机制（本地存储），存储路径配置在 `.env.dev` 中。
+
+```
+若依现有上传机制（已集成）：
+  module_admin/controller/common_controller.py  → uploadFile 接口
+  config/env.py → UploadConfig（UPLOAD_PATH、UPLOAD_PREFIX 等配置）
+  文件存储在本地 {UPLOAD_PATH}/ 目录下
+```
+
+**扩展阶段**：如需对象存储，可引入 MinIO 或对接阿里云 OSS。
+
+### 10.2 知识库文档上传
+
+知识库文档上传使用若依现有的文件上传接口，上传后再触发 RAG 处理流程：
+
+```
+教师上传文档：
+  1. 前端调用 /common/upload 接口上传文件 → 获取 file_path
+  2. 前端调用 /rag/document/create 接口 → 传入 file_path + 文档元信息
+  3. 后端创建 edu_knowledge_document 记录（status='0' 待处理）
+  4. 后端触发异步任务：解析文档 → 分块 → 向量化 → 存入 PgVector
+  5. 更新文档状态为 status='2' 已完成
+```
+
+### 10.3 文件类型支持
+
+| 文件类型 | 解析库 | 说明 |
+|---|---|---|
+| PDF | PyMuPDF | 提取正文文本，保留页面结构 |
+| Word (.docx) | python-docx | 提取段落文本 |
+| PPT (.pptx) | python-pptx | 提取幻灯片文本 |
+| TXT | 直接读取 | 无需额外处理 |
+
+### 10.4 文件安全
+
+- 上传文件类型白名单限制（仅允许 PDF/DOCX/PPTX/TXT）
+- 单文件大小限制（建议 50MB 以内）
+- 文件去重：通过 `file_hash`（SHA-256）防止重复上传
+- 知识库文档不对外直接访问，仅通过 RAG 检索接口返回文本内容
+
+---
+
+## 十一、AI 合规标注要求
+
+根据《教师生成式人工智能应用指引》和"用AI案例征集指南"的要求，系统需落实以下合规措施：
+
+### 11.1 AI 生成内容标注
+
+**前端要求**：所有 AI 输出区域必须显示"AI 生成"标识。
+
+```
+实现方式：
+  - AI 对话面板的每条 assistant 消息前标注「AI 生成」标签
+  - AI 分析结果（问题识别、伦理分析、反思提问等）区域标注「AI 辅助分析」
+  - 研究生成区的论文框架和段落建议标注「AI 辅助生成，请仔细审核」
+```
+
+### 11.2 学生隐私保护
+
+```
+实现方式：
+  - 学生反思文本在调用大模型 API 前，进行姓名等敏感信息脱敏
+  - 优秀案例加入案例库时，自动匿名化处理（替换学生姓名为"学生A"等）
+  - 教师查看跨班级数据时，自动脱敏学生个人信息
+```
+
+### 11.3 教师审核 AI 内容
+
+```
+实现方式：
+  - AI 推荐的理论关联、伦理参照等内容，教师可在评价时标注"已审核"
+  - 教师管理端的"内容审核"功能，支持查看 AI 生成内容的原文和修改记录
+  - 系统记录教师对 AI 内容的审核操作日志
+```
