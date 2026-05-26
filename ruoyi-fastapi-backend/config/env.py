@@ -8,6 +8,13 @@ from dotenv import load_dotenv
 from pydantic import computed_field
 from pydantic_settings import BaseSettings
 
+# ============================================================
+# 当前激活的配置环境，可选值: dev | test | prod | dockermy | dockerpg
+# 启动时加载对应的 .env.{ACTIVE_PROFILE} 文件
+# 命令行可通过 --env prod 覆盖此默认值
+# ============================================================
+ACTIVE_PROFILE = 'test'
+
 
 class AppSettings(BaseSettings):
     """
@@ -292,26 +299,22 @@ class GetConfig:
             if 'settings' in ini_config:
                 # 获取env选项
                 env_value = ini_config['settings'].get('env')
-                os.environ['APP_ENV'] = env_value if env_value else 'dev'
+                os.environ['APP_ENV'] = env_value if env_value else ACTIVE_PROFILE
         elif 'uvicorn' in sys.argv[0]:
             # 使用uvicorn启动时，命令行参数需要按照uvicorn的文档进行配置，无法自定义参数
-            pass
+            os.environ.setdefault('APP_ENV', ACTIVE_PROFILE)
         else:
             # 使用argparse定义命令行参数
             parser = argparse.ArgumentParser(description='命令行参数')
-            parser.add_argument('--env', type=str, default='', help='运行环境')
+            parser.add_argument('--env', type=str, default=ACTIVE_PROFILE, help=f'运行环境，默认: {ACTIVE_PROFILE}')
             # 解析命令行参数
             args, _ = parser.parse_known_args()
-            # 设置环境变量，如果未设置命令行参数，默认APP_ENV为dev
-            os.environ['APP_ENV'] = args.env if args.env else 'dev'
+            # 设置环境变量
+            os.environ['APP_ENV'] = args.env
         # 读取运行环境
-        run_env = os.environ.get('APP_ENV', '')
-        # 运行环境未指定时默认加载.env.test
-        env_file = '.env.test'
-        # 运行环境不为空时按命令行参数加载对应.env文件
-        if run_env != '':
-            env_file = f'.env.{run_env}'
-        # 加载配置
+        run_env = os.environ.get('APP_ENV', ACTIVE_PROFILE)
+        # 加载对应的 .env 文件
+        env_file = f'.env.{run_env}'
         load_dotenv(env_file)
 
 

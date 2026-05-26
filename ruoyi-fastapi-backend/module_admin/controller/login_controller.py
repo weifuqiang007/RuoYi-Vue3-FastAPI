@@ -128,7 +128,7 @@ async def get_login_user_routers(
     description='用于用户注册',
     response_model=DataResponseModel[CrudResponseModel],
 )
-@ApiRateLimit(namespace=ApiNamespace.REGISTER, preset=ApiRateLimitPreset.ANON_AUTH_REGISTER)
+@ApiRateLimit(namespace=ApiNamespace.REGISTER, preset=ApiRateLimitPreset.ANON_AUTH_REGISTER)  # 同一个 IP 在 120 秒内最多调用注册接口 6 次，超过会返回 429 Too Many Requests。
 @ApiCacheEvict(namespaces=ApiGroup.USER_ENTITY_MUTATION)
 async def register_user(
     request: Request,
