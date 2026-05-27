@@ -157,6 +157,20 @@ export const dynamicRoutes = [
         meta: { title: '修改生成配置', activeMenu: '/tool/gen' }
       }
     ]
+  },
+  {
+    path: '/edu/audit',
+    component: Layout,
+    hidden: true,
+    permissions: ['edu:audit:list'],
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/edu/audit/index'),
+        name: 'Audit',
+        meta: { title: '注册审核', icon: 'documentation' }
+      }
+    ]
   }
 ]
 

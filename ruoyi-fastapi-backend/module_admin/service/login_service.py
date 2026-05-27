@@ -17,6 +17,7 @@ from common.vo import CrudResponseModel
 from config.env import AppConfig, JwtConfig
 from config.get_db import get_db
 from exceptions.exception import AuthException, LoginException, ServiceException
+from module_admin.dao.edu_dao import EduDao
 from module_admin.dao.login_dao import login_by_account
 from module_admin.dao.user_dao import UserDao
 from module_admin.entity.do.dept_do import SysDept
@@ -135,6 +136,16 @@ class LoginService:
         if user[0].status == '1':
             logger.warning('用户已停用')
             raise LoginException(data='', message='用户已停用')
+        # 检查教育模块注册审核状态
+        audit = await EduDao.get_audit_by_user_id(query_db, user[0].user_id)
+        if audit and audit.audit_status == '0':
+            logger.warning('账号待审核')
+            raise LoginException(data='', message='账号待审核，请等待管理员审批')
+        if audit and audit.audit_status == '2':
+            logger.warning('账号审核未通过')
+            raise LoginException(
+                data='', message=f'账号审核未通过：{audit.audit_remark or "请联系管理员"}'
+            )
         await request.app.state.redis.delete(f'{RedisInitKeyConfig.PASSWORD_ERROR_COUNT.key}:{login_user.user_name}')
         return user
 

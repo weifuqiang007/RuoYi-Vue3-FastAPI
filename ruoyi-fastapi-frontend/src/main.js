@@ -82,3 +82,5 @@ app.use(ElementPlus, {
 })
 
 app.mount('#app')
+
+document.body.classList.add('loaded')

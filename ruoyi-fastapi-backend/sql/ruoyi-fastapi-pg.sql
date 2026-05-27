@@ -1178,3 +1178,141 @@ RETURN pg_catalog.array_to_string(tokens[indexnum:length], $2);
 END IF;
 END;
 $$ IMMUTABLE STRICT LANGUAGE PLPGSQL;
+
+-- ----------------------------
+-- 教育模块-角色初始化数据
+-- ----------------------------
+insert into sys_role values(3, '学生', 'student', 3, '5', 1, 1, '0', '0', 'admin', current_timestamp, '', null, '学生角色');
+insert into sys_role values(4, '教师', 'teacher', 2, '4', 1, 1, '0', '0', 'admin', current_timestamp, '', null, '教师角色');
+alter sequence sys_role_role_id_seq restart 5;
+
+-- ----------------------------
+-- 教育模块-学生信息扩展表
+-- ----------------------------
+drop table if exists edu_student_profile;
+create table edu_student_profile (
+    profile_id  bigserial not null,
+    user_id     bigint not null references sys_user(user_id),
+    student_no  varchar(30),
+    class_id    bigint references sys_dept(dept_id),
+    major       varchar(100),
+    grade       varchar(20),
+    del_flag    char(1) default '0',
+    create_by   varchar(64) default '',
+    create_time timestamp(0) default current_timestamp,
+    update_by   varchar(64) default '',
+    update_time timestamp(0) default current_timestamp,
+    primary key (profile_id)
+);
+comment on column edu_student_profile.profile_id is '档案ID';
+comment on column edu_student_profile.user_id is '关联用户ID';
+comment on column edu_student_profile.student_no is '学号';
+comment on column edu_student_profile.class_id is '所属班级（复用部门体系）';
+comment on column edu_student_profile.major is '专业';
+comment on column edu_student_profile.grade is '年级';
+comment on column edu_student_profile.del_flag is '删除标志（0存在 1删除）';
+comment on column edu_student_profile.create_by is '创建者';
+comment on column edu_student_profile.create_time is '创建时间';
+comment on column edu_student_profile.update_by is '更新者';
+comment on column edu_student_profile.update_time is '更新时间';
+comment on table edu_student_profile is '学生信息扩展表';
+
+-- ----------------------------
+-- 教育模块-教师信息扩展表
+-- ----------------------------
+drop table if exists edu_teacher_profile;
+create table edu_teacher_profile (
+    profile_id     bigserial not null,
+    user_id        bigint not null references sys_user(user_id),
+    teacher_no     varchar(30),
+    department_id  bigint references sys_dept(dept_id),
+    title          varchar(50),
+    research_area  varchar(200),
+    del_flag       char(1) default '0',
+    create_by      varchar(64) default '',
+    create_time    timestamp(0) default current_timestamp,
+    update_by      varchar(64) default '',
+    update_time    timestamp(0) default current_timestamp,
+    primary key (profile_id)
+);
+comment on column edu_teacher_profile.profile_id is '档案ID';
+comment on column edu_teacher_profile.user_id is '关联用户ID';
+comment on column edu_teacher_profile.teacher_no is '工号';
+comment on column edu_teacher_profile.department_id is '所属院系';
+comment on column edu_teacher_profile.title is '职称';
+comment on column edu_teacher_profile.research_area is '研究方向';
+comment on column edu_teacher_profile.del_flag is '删除标志（0存在 1删除）';
+comment on column edu_teacher_profile.create_by is '创建者';
+comment on column edu_teacher_profile.create_time is '创建时间';
+comment on column edu_teacher_profile.update_by is '更新者';
+comment on column edu_teacher_profile.update_time is '更新时间';
+comment on table edu_teacher_profile is '教师信息扩展表';
+
+-- ----------------------------
+-- 教育模块-注册审核表
+-- ----------------------------
+drop table if exists edu_registration_audit;
+create table edu_registration_audit (
+    audit_id     bigserial not null,
+    user_id      bigint not null references sys_user(user_id),
+    apply_role   varchar(30) not null,
+    real_name    varchar(50),
+    org_name     varchar(200),
+    audit_status char(1) default '0',
+    audit_remark varchar(500),
+    audited_by   bigint,
+    audited_time timestamp(0),
+    create_time  timestamp(0) default current_timestamp,
+    primary key (audit_id)
+);
+comment on column edu_registration_audit.audit_id is '审核ID';
+comment on column edu_registration_audit.user_id is '关联用户ID';
+comment on column edu_registration_audit.apply_role is '申请的角色标识';
+comment on column edu_registration_audit.real_name is '真实姓名';
+comment on column edu_registration_audit.org_name is '所属单位';
+comment on column edu_registration_audit.audit_status is '审核状态（0待审核 1已通过 2已拒绝）';
+comment on column edu_registration_audit.audit_remark is '审核备注';
+comment on column edu_registration_audit.audited_by is '审核人';
+comment on column edu_registration_audit.audited_time is '审核时间';
+comment on column edu_registration_audit.create_time is '创建时间';
+comment on table edu_registration_audit is '注册审核表';
+
+-- ----------------------------
+-- 教育模块-教师班级关联表
+-- ----------------------------
+drop table if exists edu_teacher_class;
+create table edu_teacher_class (
+    id          bigserial not null,
+    user_id     bigint not null references sys_user(user_id),
+    class_id    bigint not null references sys_dept(dept_id),
+    create_by   varchar(64) default '',
+    create_time timestamp(0) default current_timestamp,
+    primary key (id)
+);
+comment on column edu_teacher_class.id is '关联ID';
+comment on column edu_teacher_class.user_id is '教师用户ID';
+comment on column edu_teacher_class.class_id is '班级ID（关联sys_dept）';
+comment on column edu_teacher_class.create_by is '创建者';
+comment on column edu_teacher_class.create_time is '创建时间';
+comment on table edu_teacher_class is '教师班级关联表';
+
+-- ----------------------------
+-- 教育模块-审核管理菜单
+-- ----------------------------
+insert into sys_menu values(2000, '审核管理', 0, 6, 'edu-audit', null, '', '', 1, 0, 'M', '0', '0', '', 'education', 'admin', current_timestamp, '', null, '审核管理目录');
+insert into sys_menu values(2001, '用户审核', 2000, 1, 'users', 'edu/audit/index', '', '', 1, 0, 'C', '0', '0', 'edu:audit:list', 'peoples', 'admin', current_timestamp, '', null, '用户审核菜单');
+insert into sys_menu values(2002, '用户查询', 2001, 1, '', '', '', '', 1, 0, 'F', '0', '0', 'edu:audit:query', '#', 'admin', current_timestamp, '', null, '');
+insert into sys_menu values(2003, '用户新增', 2001, 2, '', '', '', '', 1, 0, 'F', '0', '0', 'edu:audit:add', '#', 'admin', current_timestamp, '', null, '');
+insert into sys_menu values(2004, '用户修改', 2001, 3, '', '', '', '', 1, 0, 'F', '0', '0', 'edu:audit:edit', '#', 'admin', current_timestamp, '', null, '');
+insert into sys_menu values(2005, '用户删除', 2001, 4, '', '', '', '', 1, 0, 'F', '0', '0', 'edu:audit:remove', '#', 'admin', current_timestamp, '', null, '');
+insert into sys_menu values(2006, '审核操作', 2001, 5, '', '', '', '', 1, 0, 'F', '0', '0', 'edu:audit:audit', '#', 'admin', current_timestamp, '', null, '');
+alter sequence sys_menu_menu_id_seq restart 2100;
+
+-- 教师角色菜单权限
+insert into sys_role_menu values (4, 2000);
+insert into sys_role_menu values (4, 2001);
+insert into sys_role_menu values (4, 2002);
+insert into sys_role_menu values (4, 2003);
+insert into sys_role_menu values (4, 2004);
+insert into sys_role_menu values (4, 2005);
+insert into sys_role_menu values (4, 2006);

@@ -52,8 +52,8 @@
           <span v-if="!loading">登 录</span>
           <span v-else>登 录 中...</span>
         </el-button>
-        <div style="float: right;" v-if="register">
-          <router-link class="link-type" :to="'/register'">立即注册</router-link>
+        <div class="register-link">
+          没有账户，<router-link :to="'/register'">请先注册</router-link>
         </div>
       </el-form-item>
     </el-form>
@@ -70,6 +70,7 @@ import Cookies from "js-cookie";
 import { encrypt, decrypt } from "@/utils/jsencrypt";
 import useUserStore from '@/store/modules/user'
 import defaultSettings from '@/settings'
+import { ElMessageBox } from "element-plus"
 
 const title = import.meta.env.VITE_APP_TITLE;
 const footerContent = defaultSettings.footerContent
@@ -96,8 +97,6 @@ const codeUrl = ref("");
 const loading = ref(false);
 // 验证码开关
 const captchaEnabled = ref(true);
-// 注册开关
-const register = ref(false);
 const redirect = ref(undefined);
 
 watch(route, (newRoute) => {
@@ -129,11 +128,26 @@ function handleLogin() {
           return acc;
         }, {});
         router.push({ path: redirect.value || "/", query: otherQueryParams });
-      }).catch(() => {
+      }).catch((error) => {
         loading.value = false;
         // 重新获取验证码
         if (captchaEnabled.value) {
           getCode();
+        }
+        // 处理审核相关错误提示
+        const errMsg = error?.message || '';
+        if (errMsg.includes('待审核')) {
+          ElMessageBox.alert(
+            '您的注册申请正在审核中，请耐心等待管理员审批。审核通过后即可登录。',
+            '账号待审核',
+            { confirmButtonText: '知道了', type: 'warning' }
+          );
+        } else if (errMsg.includes('审核未通过')) {
+          ElMessageBox.alert(
+            errMsg,
+            '审核未通过',
+            { confirmButtonText: '知道了', type: 'error' }
+          );
         }
       });
     }
@@ -142,11 +156,11 @@ function handleLogin() {
 
 function getCode() {
   getCodeImg().then(res => {
-    captchaEnabled.value = res.captchaEnabled === undefined ? true : res.captchaEnabled;
-    register.value = res.registerEnabled === undefined ? false : res.registerEnabled;
+    const payload = res?.data ?? res ?? {}
+    captchaEnabled.value = payload.captchaEnabled === undefined ? true : payload.captchaEnabled;
     if (captchaEnabled.value) {
-      codeUrl.value = "data:image/gif;base64," + res.img;
-      loginForm.value.uuid = res.uuid;
+      codeUrl.value = "data:image/gif;base64," + payload.img;
+      loginForm.value.uuid = payload.uuid;
     }
   });
 }
@@ -210,6 +224,17 @@ html.dark .title {
 
 html.dark .login-form {
   background: var(--el-bg-color);
+}
+.register-link {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 14px;
+  color: #666;
+  a {
+    color: #1890ff;
+    font-weight: bold;
+    text-decoration: underline;
+  }
 }
 .login-tip {
   font-size: 13px;
