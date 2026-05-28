@@ -103,7 +103,17 @@ async def get_login_user_info(
 
     return ResponseUtil.success(model_content=current_user)
 
+"""
+接口缓存装饰器，用于给获取用户路由的接口添加 Redis 缓存。
 
+缓存键 — 根据请求方法(GET)、路径、路径参数、查询参数、请求体摘要、用户ID 等信息生成唯一的 SHA256 哈希作为缓存键，存入 Redis。
+
+缓存策略 — 默认参数 expire_seconds=10（缓存 10 秒），vary_by_user=True（按用户隔离，不同用户看到各自的缓存），methods=(GET,)（仅缓存 GET 请求），cache_response_codes={200}（仅缓存成功响应）。
+
+命中缓存时 — 直接从 Redis 返回缓存结果，响应头带 X-Api-Cache: HIT；穿透时正常执行接口逻辑，响应头带 X-Api-Cache: MISS，并将结果写入缓存。
+
+配套清理 — 有对应的 @ApiCacheEvict 装饰器用于写操作接口，在写操作成功后清理指定命名空间下的缓存。
+"""
 @login_controller.get(
     '/getRouters',
     summary='获取用户路由接口',
