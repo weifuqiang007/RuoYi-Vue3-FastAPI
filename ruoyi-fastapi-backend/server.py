@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from utils.log_util import logger
+
 from common.constant import LockConstant
 from common.router import auto_register_routers
 from config.env import AppConfig
@@ -15,7 +17,6 @@ from middlewares.handle import handle_middleware
 from module_admin.service.log_service import LogAggregatorService
 from sub_applications.handle import handle_sub_applications
 from utils.common_util import worship
-from utils.log_util import logger
 from utils.server_util import APIDocsUtil, IPUtil, StartupUtil
 from utils.transport_crypto_util import TransportKeyProvider
 

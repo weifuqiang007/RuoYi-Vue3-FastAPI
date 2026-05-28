@@ -543,10 +543,6 @@ class LoggerInitializer:
         record['extra']['sanitized_exception'] = self._build_plain_exception_suffix(record)
         return (
             '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | '
-            '<cyan>{extra[trace_id]}</cyan> | '
-            '<magenta>{extra[span_id]}</magenta> | '
-            '<yellow>{extra[request_id]}</yellow> | '
-            '<blue>{extra[worker_id]}</blue> | '
             '<level>{level: <8}</level> | '
             '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - '
             '<level>{message}</level>{extra[sanitized_exception]}\n'
@@ -564,12 +560,12 @@ class LoggerInitializer:
 
     def _info_file_filter(self, record: dict) -> bool:
         """
-        仅输出 INFO 级别日志到 info 文件
+        输出 DEBUG 和 INFO 级别日志到 info 文件
 
         :param record: Loguru 日志记录字典
         :return: 是否允许输出日志
         """
-        return self._filter(record) and record['level'].name == 'INFO'
+        return self._filter(record) and record['level'].no <= logging.INFO
 
     def _error_file_filter(self, record: dict) -> bool:
         """
@@ -587,10 +583,11 @@ class LoggerInitializer:
         :return: None
         """
         logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
-        for logger_name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'fastapi'):
+        for logger_name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'fastapi',
+                            'sqlalchemy.engine'):
             logging.getLogger(logger_name).handlers = [InterceptHandler()]
             logging.getLogger(logger_name).propagate = False
-        for logger_name in ('LiteLLM', 'litellm'):
+        for logger_name in ('LiteLLM', 'litellm', 'sqlalchemy.pool'):
             logging.getLogger(logger_name).setLevel(logging.WARNING)
 
     def init_log(self) -> Logger:
@@ -625,7 +622,7 @@ class LoggerInitializer:
             if LogConfig.loguru_json:
                 configured_logger.add(
                     info_log_path,
-                    level='INFO',
+                    level=LogConfig.loguru_level,
                     rotation=LogConfig.loguru_rotation,
                     retention=LogConfig.loguru_retention,
                     compression=LogConfig.loguru_compression,
@@ -648,7 +645,7 @@ class LoggerInitializer:
             else:
                 configured_logger.add(
                     info_log_path,
-                    level='INFO',
+                    level=LogConfig.loguru_level,
                     rotation=LogConfig.loguru_rotation,
                     retention=LogConfig.loguru_retention,
                     compression=LogConfig.loguru_compression,

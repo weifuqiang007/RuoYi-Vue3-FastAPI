@@ -15,4 +15,5 @@ if __name__ == '__main__':
         reload=AppConfig.app_reload,
         workers=AppConfig.app_workers,
         factory=True,
+        reload_excludes=['logs/*', 'caches/*', 'vf_admin/*'],
     )
