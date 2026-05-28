@@ -1,4 +1,5 @@
 from fastapi import Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import CrudResponseModel, PageModel
@@ -28,6 +29,11 @@ ROLE_ID_TEACHER = 4
 
 class EduService:
     @classmethod
+    async def get_available_roles(cls, query_db: AsyncSession) -> list[dict]:
+        """获取可用于注册的角色列表（排除admin）"""
+        return await EduDao.get_available_roles(query_db)
+
+    @classmethod
     async def register_student(
         cls, request: Request, query_db: AsyncSession, reg: StudentRegisterModel
     ) -> CrudResponseModel:
@@ -51,6 +57,10 @@ class EduService:
         )
         db_user = await UserDao.add_user_dao(query_db, add_user)
         user_id = db_user.user_id
+
+        if reg.apply_role != 'student':
+            raise ServiceException(message='学生注册接口 applyRole 须为 student')
+        query_db.add(SysUserRole(user_id=user_id, role_id=ROLE_ID_STUDENT))
 
         await EduDao.add_student_profile(
             query_db,
@@ -95,6 +105,10 @@ class EduService:
         db_user = await UserDao.add_user_dao(query_db, add_user)
         user_id = db_user.user_id
 
+        if reg.apply_role != 'teacher':
+            raise ServiceException(message='教师注册接口 applyRole 须为 teacher')
+        query_db.add(SysUserRole(user_id=user_id, role_id=ROLE_ID_TEACHER))
+
         await EduDao.add_teacher_profile(
             query_db,
             user_id=user_id,
@@ -135,8 +149,11 @@ class EduService:
         )
 
         role_id = ROLE_ID_STUDENT if audit.apply_role == 'student' else ROLE_ID_TEACHER
-        db_user_role = SysUserRole(user_id=audit.user_id, role_id=role_id)
-        query_db.add(db_user_role)
+        existing_role = (await query_db.execute(
+            select(SysUserRole).where(SysUserRole.user_id == audit.user_id, SysUserRole.role_id == role_id)
+        )).scalars().first()
+        if not existing_role:
+            query_db.add(SysUserRole(user_id=audit.user_id, role_id=role_id))
 
         await query_db.commit()
         return CrudResponseModel(is_success=True, message='审核通过')

@@ -32,6 +32,21 @@ from utils.response_util import ResponseUtil
 edu_controller = APIRouterPro(prefix='/edu', order_num=10, tags=['教育模块'])
 
 
+# ==================== 角色查询接口（无需登录） ====================
+
+
+@edu_controller.get(
+    '/roles',
+    summary='获取可选角色列表',
+    description='返回系统中可用于注册的角色列表（学生、教师），供前端注册页面渲染角色选择下拉框',
+)
+async def get_available_roles(
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await EduService.get_available_roles(query_db)
+    return ResponseUtil.success(data=result)
+
+
 # ==================== 注册接口（无需登录） ====================
 
 

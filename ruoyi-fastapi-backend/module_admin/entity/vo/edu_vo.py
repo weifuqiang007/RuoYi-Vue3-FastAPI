@@ -16,6 +16,7 @@ class StudentRegisterModel(BaseModel):
     email: str = Field(description='邮箱')
     password: str = Field(description='密码')
     confirm_password: str = Field(description='确认密码')
+    apply_role: str = Field(default='student', description='申请角色，固定值 student')
     code: str | None = Field(default=None, description='验证码')
     uuid: str | None = Field(default=None, description='会话编号')
     major: str | None = Field(default=None, description='专业')
@@ -37,6 +38,7 @@ class TeacherRegisterModel(BaseModel):
     email: str = Field(description='邮箱')
     password: str = Field(description='密码')
     confirm_password: str = Field(description='确认密码')
+    apply_role: str = Field(default='teacher', description='申请角色，固定值 teacher')
     code: str | None = Field(default=None, description='验证码')
     uuid: str | None = Field(default=None, description='会话编号')
     title: str | None = Field(default=None, description='职称')
@@ -68,7 +70,7 @@ class AuditActionModel(BaseModel):
 
 
 class AuditVO(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     audit_id: int | None = Field(default=None, description='审核ID')
     user_id: int | None = Field(default=None, description='关联用户ID')
@@ -86,7 +88,7 @@ class AuditVO(BaseModel):
 
 
 class TeacherClassModel(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     id: int | None = Field(default=None, description='关联ID')
     user_id: int | None = Field(default=None, description='教师用户ID')
@@ -101,7 +103,7 @@ class TeacherClassAddModel(BaseModel):
 
 
 class StudentInfoModel(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     user_id: int | None = Field(default=None, description='用户ID')
     user_name: str | None = Field(default=None, description='用户账号')
@@ -142,7 +144,7 @@ class ManagedUserQueryModel(BaseModel):
 class ManagedUserVO(BaseModel):
     """审核管理-用户信息视图"""
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     user_id: int | None = Field(default=None, description='用户ID')
     user_name: str | None = Field(default=None, description='用户账号')

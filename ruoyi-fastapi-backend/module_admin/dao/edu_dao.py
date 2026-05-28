@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.vo import PageModel
 from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.edu_do import EduRegistrationAudit, EduStudentProfile, EduTeacherClass, EduTeacherProfile
-from module_admin.entity.do.user_do import SysUser
+from module_admin.entity.do.role_do import SysRole
+from module_admin.entity.do.user_do import SysUser, SysUserRole
 from module_admin.entity.vo.edu_vo import AuditQueryModel, ManagedUserQueryModel
 from utils.page_util import PageUtil
 
@@ -281,6 +282,22 @@ class EduDao:
                 'dept_name': row[21],
             })
 
+        # 批量查询每个用户的系统角色
+        if user_list:
+            user_ids = [u['user_id'] for u in user_list]
+            role_stmt = (
+                select(SysUserRole.user_id, SysRole.role_key)
+                .join(SysRole, SysUserRole.role_id == SysRole.role_id)
+                .where(SysUserRole.user_id.in_(user_ids))
+            )
+            role_result = await db.execute(role_stmt)
+            role_rows = role_result.all()
+            role_map: dict[int, list[str]] = {}
+            for uid, rk in role_rows:
+                role_map.setdefault(uid, []).append(rk)
+            for u in user_list:
+                u['role_keys'] = ','.join(role_map.get(u['user_id'], []))
+
         return PageUtil.get_page_obj(user_list, query.page_num, query.page_size)
 
     @classmethod
@@ -299,3 +316,13 @@ class EduDao:
         await db.execute(
             update(EduStudentProfile).where(EduStudentProfile.user_id == user_id).values(class_id=None)
         )
+
+    @classmethod
+    async def get_available_roles(cls, db: AsyncSession) -> list[dict]:
+        """获取可用于注册的角色列表（排除admin角色）"""
+        result = await db.execute(
+            select(SysRole.role_id, SysRole.role_name, SysRole.role_key).where(
+                SysRole.role_id != 1, SysRole.status == '0', SysRole.del_flag == '0'
+            )
+        )
+        return [{'role_id': r[0], 'role_name': r[1], 'role_key': r[2]} for r in result.all()]

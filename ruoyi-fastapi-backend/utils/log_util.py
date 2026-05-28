@@ -587,7 +587,7 @@ class LoggerInitializer:
                             'sqlalchemy.engine'):
             logging.getLogger(logger_name).handlers = [InterceptHandler()]
             logging.getLogger(logger_name).propagate = False
-        for logger_name in ('LiteLLM', 'litellm', 'sqlalchemy.pool', 'watchfiles.watcher'):
+        for logger_name in ('LiteLLM', 'litellm', 'sqlalchemy.pool', 'watchfiles'):
             logging.getLogger(logger_name).setLevel(logging.WARNING)
 
     def init_log(self) -> Logger:

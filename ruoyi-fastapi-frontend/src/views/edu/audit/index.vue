@@ -84,17 +84,16 @@
       <el-table-column label="邮箱" align="center" prop="email" min-width="160" />
       <el-table-column label="角色" align="center" min-width="120">
         <template #default="scope">
-          <template v-if="scope.row.applyRole === 'student'">
-            <div>学号：{{ scope.row.studentNo || '-' }}</div>
-            <div>专业：{{ scope.row.major || '-' }}</div>
-            <div>年级：{{ scope.row.grade || '-' }}</div>
+          <template v-if="scope.row.roleKeys || scope.row.applyRole">
+            <el-tag
+              v-for="k in String(scope.row.roleKeys || scope.row.applyRole).split(',').map(v => v.trim()).filter(Boolean)"
+              :key="k"
+              :type="k === 'admin' ? 'danger' : (k === 'teacher' ? 'success' : 'primary')"
+              size="small"
+              style="margin: 0 6px 6px 0"
+            >{{ k }}</el-tag>
           </template>
-          <template v-else-if="scope.row.applyRole === 'teacher'">
-            <div>教师编号：{{ scope.row.teacherNo || '-' }}</div>
-            <div>职称：{{ scope.row.title || '-' }}</div>
-            <div>研究方向：{{ scope.row.researchArea || '-' }}</div>
-          </template>
-          <template v-else>-</template>
+          <span v-else>-</span>
         </template>
       </el-table-column>
       <el-table-column label="学号/教师编号" align="center" min-width="130">
@@ -353,8 +352,34 @@ function getDeptList() {
 function getList() {
   loading.value = true
   listManageUsers(queryParams.value).then(res => {
-    userList.value = res.rows
-    total.value = res.total
+    const page = res?.data ?? {}
+    const rows = Array.isArray(page.rows) ? page.rows : []
+    userList.value = rows.map(row => ({
+      applyRole: row.apply_role ?? row.applyRole,
+      roleKeys: row.role_keys ?? row.roleKeys,
+      userId: row.user_id,
+      userName: row.user_name,
+      nickName: row.nick_name,
+      email: row.email,
+      phonenumber: row.phonenumber,
+      status: row.status,
+      sex: row.sex,
+      createTime: row.create_time,
+      auditId: row.audit_id,
+      realName: row.real_name,
+      auditStatus: row.audit_status,
+      auditRemark: row.audit_remark,
+      studentNo: row.student_no,
+      classId: row.class_id,
+      major: row.major,
+      grade: row.grade,
+      teacherNo: row.teacher_no,
+      departmentId: row.department_id,
+      title: row.title,
+      researchArea: row.research_area,
+      deptName: row.dept_name
+    }))
+    total.value = page.total ?? 0
     loading.value = false
   }).catch(() => {
     loading.value = false
@@ -483,6 +508,7 @@ function submitAdd() {
         email: f.email,
         password: f.password,
         confirmPassword: f.confirmPassword,
+        applyRole: 'student',
         major: f.major,
         grade: f.grade
       } : {
@@ -491,6 +517,7 @@ function submitAdd() {
         email: f.email,
         password: f.password,
         confirmPassword: f.confirmPassword,
+        applyRole: 'teacher',
         title: f.title,
         researchArea: f.researchArea
       }

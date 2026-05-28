@@ -3,25 +3,13 @@
     <el-form ref="registerRef" :model="registerForm" :rules="registerRules" class="register-form">
       <h3 class="title">{{ title }}</h3>
 
-      <el-alert
-        v-if="!registerEnabled"
-        title="注册程序已关闭，禁止注册"
-        type="warning"
-        show-icon
-        :closable="false"
-        style="margin-bottom: 15px"
-      />
-
       <!-- 角色切换 -->
       <el-tabs v-model="activeRole" class="register-tabs" @tab-change="handleRoleChange">
-        <el-tab-pane name="student">
+        <el-tab-pane v-for="r in roleOptions" :key="r.roleKey" :name="r.roleKey">
           <template #label>
-            <span :class="['role-tab', 'role-student', { active: activeRole === 'student' }]">学生注册</span>
-          </template>
-        </el-tab-pane>
-        <el-tab-pane name="teacher">
-          <template #label>
-            <span :class="['role-tab', 'role-teacher', { active: activeRole === 'teacher' }]">教师注册</span>
+            <span :class="['role-tab', getRoleTabClass(r.roleKey), { active: activeRole === r.roleKey }]">
+              {{ r.roleName }}注册
+            </span>
           </template>
         </el-tab-pane>
       </el-tabs>
@@ -178,7 +166,6 @@
       <el-form-item style="width:100%;">
         <el-button
           :loading="loading"
-          :disabled="!registerEnabled"
           size="large"
           type="primary"
           style="width:100%;"
@@ -202,7 +189,7 @@
 <script setup>
 import { ElMessageBox } from "element-plus"
 import { getCodeImg } from "@/api/login"
-import { studentRegister, teacherRegister } from "@/api/edu/register"
+import { listEduRoles, studentRegister, teacherRegister } from "@/api/edu/register"
 import defaultSettings from '@/settings'
 
 const title = import.meta.env.VITE_APP_TITLE
@@ -211,6 +198,15 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const activeRole = ref("student")
+const roleOptions = ref([
+  { roleKey: 'student', roleName: '学生' },
+  { roleKey: 'teacher', roleName: '教师' }
+])
+
+function getRoleTabClass(roleKey) {
+  if (roleKey === 'teacher') return 'role-teacher'
+  return 'role-student'
+}
 
 const registerForm = ref({
   studentNo: "",
@@ -279,7 +275,6 @@ const registerRules = computed(() => {
 const codeUrl = ref("")
 const loading = ref(false)
 const captchaEnabled = ref(true)
-const registerEnabled = ref(true)
 
 function handleRoleChange() {
   proxy.$refs.registerRef && proxy.$refs.registerRef.clearValidate()
@@ -306,31 +301,34 @@ function handleRegister() {
   proxy.$refs.registerRef.validate(valid => {
     if (valid) {
       loading.value = true
-      const isStudent = activeRole.value === 'student'
-      const registerApi = isStudent ? studentRegister : teacherRegister
+      const roleKey = activeRole.value
+      const isTeacher = roleKey === 'teacher'
+      const registerApi = isTeacher ? teacherRegister : studentRegister
 
       // 构建请求参数，仅发送当前角色相关字段
       const f = registerForm.value
-      const formData = isStudent ? {
-        studentNo: f.studentNo,
-        nickName: f.nickName,
-        email: f.email,
-        password: f.password,
-        confirmPassword: f.confirmPassword,
-        code: f.code,
-        uuid: f.uuid,
-        major: f.major,
-        grade: f.grade
-      } : {
+      const formData = isTeacher ? {
         teacherNo: f.teacherNo,
         nickName: f.nickName,
         email: f.email,
         password: f.password,
         confirmPassword: f.confirmPassword,
+        applyRole: roleKey,
         code: f.code,
         uuid: f.uuid,
         title: f.title,
         researchArea: f.researchArea
+      } : {
+        studentNo: f.studentNo,
+        nickName: f.nickName,
+        email: f.email,
+        password: f.password,
+        confirmPassword: f.confirmPassword,
+        applyRole: roleKey,
+        code: f.code,
+        uuid: f.uuid,
+        major: f.major,
+        grade: f.grade
       }
 
       registerApi(formData).then(res => {
@@ -358,7 +356,6 @@ function getCode() {
   getCodeImg().then(res => {
     const payload = res?.data ?? res ?? {}
     captchaEnabled.value = payload.captchaEnabled === undefined ? true : payload.captchaEnabled
-    registerEnabled.value = payload.registerEnabled === undefined ? true : payload.registerEnabled
     if (captchaEnabled.value) {
       codeUrl.value = "data:image/gif;base64," + payload.img
       registerForm.value.uuid = payload.uuid
@@ -366,7 +363,25 @@ function getCode() {
   })
 }
 
+function getRoles() {
+  listEduRoles().then(res => {
+    const roles = res?.data ?? res ?? []
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return
+    }
+    roleOptions.value = roles.map(item => ({
+      roleKey: item.role_key ?? item.roleKey,
+      roleName: item.role_name ?? item.roleName
+    })).filter(item => item.roleKey && item.roleName)
+
+    if (!roleOptions.value.some(r => r.roleKey === activeRole.value)) {
+      activeRole.value = roleOptions.value[0]?.roleKey || 'student'
+    }
+  }).catch(() => {})
+}
+
 getCode()
+getRoles()
 </script>
 
 <style lang='scss' scoped>

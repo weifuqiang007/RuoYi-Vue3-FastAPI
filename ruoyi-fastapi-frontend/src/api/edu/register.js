@@ -1,5 +1,14 @@
 import request from '@/utils/request'
 
+// 获取可选角色列表
+export function listEduRoles() {
+  return request({
+    url: '/edu/roles',
+    headers: { isToken: false },
+    method: 'get'
+  })
+}
+
 // 学生注册
 export function studentRegister(data) {
   return request({

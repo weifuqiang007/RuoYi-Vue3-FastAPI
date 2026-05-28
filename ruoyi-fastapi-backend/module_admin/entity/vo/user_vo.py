@@ -23,9 +23,12 @@ class TokenData(BaseModel):
 class UserModel(BaseModel):
     """
     用户表对应pydantic模型
+    alias_generator=to_camel 自动把 Python 下划线命名 → 前端驼峰命名
+
+    populate_by_name=True 既可以用字段名赋值，也可以用别名（驼峰名）赋值 user = UserModel(user_name="张三") 或 user = UserModel(userName="张三") 都可以正确赋值到 user_name 字段
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     user_id: int | None = Field(default=None, description='用户ID')
     dept_id: int | None = Field(default=None, description='部门ID')
