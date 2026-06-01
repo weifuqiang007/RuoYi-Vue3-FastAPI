@@ -32,3 +32,12 @@ SQLAlchemy[asyncio]==2.0.46
 sqlglot[rs]==28.10.0
 textual==8.2.5
 user-agents==2.2.0
+
+# RAG 核心依赖
+pgvector>=0.2.4              # Python pgvector 驱动（PostgreSQL 向量检索）
+PyMuPDF>=1.23.0              # PDF 解析（ragflow 的 deepdoc 也用它）
+python-docx>=1.1.0           # DOCX 解析
+python-pptx>=0.6.21          # PPTX 解析（可选）
+langchain-text-splitters>=0.2.0  # 文本分块（langchain 子包，比整个 langchain 轻）
+rank-bm25>=0.2.2             # BM25 关键词检索
+chardet>=5.0.0               # 文件编码检测（处理上传文档的编码问题）
