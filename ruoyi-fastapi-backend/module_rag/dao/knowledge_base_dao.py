@@ -11,3 +11,37 @@ class KnowledgeBaseDao:
         result = await db.execute(select(RagKnowledgeBase).where(RagKnowledgeBase.kb_id == kb_id,
                                                                  RagKnowledgeBase.del_flag == '0'))
         return result.scalars().first()
+
+    @classmethod
+    async def get_list(cls, db: AsyncSession) -> list[RagKnowledgeBase]:
+        result = await db.execute(
+            select(RagKnowledgeBase).where(RagKnowledgeBase.del_flag == '0').order_by(RagKnowledgeBase.create_time.desc())
+        )
+        """
+        把 Result 转换成 可迭代的 ORM 对象序列。
+        相当于：只取查询结果里的 “实体行”，不要元组。
+        """
+        return list(result.scalars().all())
+
+
+    @classmethod
+    async def create(cls, db:AsyncSession, kb: RagKnowledgeBase) -> RagKnowledgeBase:
+        db.add(kb)
+        await db.flush()
+        return db
+
+
+    @classmethod
+    async def update_by_id(cls, db: AsyncSession, kb_id: int, **kwargs):
+        await db.execute(
+            update(RagKnowledgeBase).where(RagKnowledgeBase.kb_id == kb_id).values(**kwargs)
+        )
+
+
+    @classmethod
+    async def delete_by_id(cls, db:AsyncSession, kb_id: int):
+        await db.execute(
+            update(RagKnowledgeBase).where(RagKnowledgeBase.kb_id == kb_id).values(del_flag='2')
+        )
+
+    
