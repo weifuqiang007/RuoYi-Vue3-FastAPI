@@ -215,6 +215,18 @@ class UploadSettings:
             os.makedirs(self.DOWNLOAD_PATH)
 
 
+class MinioSettings(BaseSettings):
+    """
+    MinIO 对象存储配置
+    """
+
+    minio_host: str = '127.0.0.1:9000'
+    minio_access_key: str = 'minioadmin'
+    minio_secret_key: str = 'minioadmin'
+    minio_bucket: str = 'rag'
+    minio_secure: bool = False
+
+
 class CachePathConfig:
     """
     缓存目录配置
@@ -286,6 +298,12 @@ class GetConfig:
         # 实例上传配置
         return UploadSettings()
 
+    def get_minio_config(self) -> MinioSettings:
+        """
+        获取MinIO配置
+        """
+        return MinioSettings()
+
     # 参数解析
     @staticmethod
     def parse_cli_args() -> None:
@@ -336,3 +354,5 @@ TransportCryptoConfig = get_config.get_transport_crypto_config()
 GenConfig = get_config.get_gen_config()
 # 上传配置
 UploadConfig = get_config.get_upload_config()
+# MinIO配置
+MinioConfig = get_config.get_minio_config()
