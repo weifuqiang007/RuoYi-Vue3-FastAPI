@@ -41,3 +41,4 @@ python-pptx>=0.6.21          # PPTX 解析（可选）
 langchain-text-splitters>=0.2.0  # 文本分块（langchain 子包，比整个 langchain 轻）
 rank-bm25>=0.2.2             # BM25 关键词检索
 chardet>=5.0.0               # 文件编码检测（处理上传文档的编码问题）
+zai-sdk==0.2.2
