@@ -17,7 +17,7 @@ class RagChunk(Base):
     chunk_index = Column(Integer, nullable=False, comment='分块序号')
     content = Column(Text, nullable=False, comment='分块内容')
     token_count = Column(Integer, nullable=True, server_default='0', comment='Token数量')
-    embedding = Column(Vector(1024), nullable=True, comment='文本向量')  # pgvector 向量字段
+    embedding = Column(Vector(1024), nullable=True, comment='文本向量')  # pgvector 向量字段（智谱 embedding-3 指定 dimensions=1024 输出）
     chunk_metadata = Column('metadata', JSONB, nullable=True, comment='元数据')
     del_flag = Column(CHAR(1), nullable=True, server_default='0', comment='删除标志')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')

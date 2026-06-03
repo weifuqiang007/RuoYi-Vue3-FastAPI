@@ -1316,3 +1316,27 @@ insert into sys_role_menu values (4, 2003);
 insert into sys_role_menu values (4, 2004);
 insert into sys_role_menu values (4, 2005);
 insert into sys_role_menu values (4, 2006);
+
+--- 这里使用了智普的embedding模型，智普的是2048维。我在数据库构建的时候构建成了1024维度。所以需要重新构建索引和修改数据库的维度。如果未来换模型，这一块也需要注意。
+-- 删掉旧表（如果数据不要了）
+DROP TABLE IF EXISTS rag_chunk CASCADE;
+
+-- 重建（embedding 改为 vector(1024)）
+CREATE TABLE rag_chunk (
+    chunk_id       BIGSERIAL PRIMARY KEY,
+    doc_id         BIGINT NOT NULL REFERENCES rag_document(doc_id),
+    kb_id          BIGINT NOT NULL REFERENCES rag_knowledge_base(kb_id),
+    chunk_index    INTEGER NOT NULL,
+    content        TEXT NOT NULL,
+    token_count    INTEGER DEFAULT 0,
+    embedding      vector(1024),      -- 智谱 embedding-3 指定 dimensions=1024
+    metadata       JSONB,
+    del_flag       CHAR(1) DEFAULT '0',
+    create_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 索引（1024 维 < 2000，ivfflat 可以用）
+CREATE INDEX idx_rag_chunk_embedding ON rag_chunk USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+CREATE INDEX idx_rag_chunk_kb_id ON rag_chunk(kb_id);
+CREATE INDEX idx_rag_chunk_doc_id ON rag_chunk(doc_id);
+CREATE INDEX idx_rag_chunk_content_fts ON rag_chunk USING gin(to_tsvector('simple', content));

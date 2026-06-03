@@ -28,7 +28,7 @@ class KnowledgeBaseDao:
     async def create(cls, db:AsyncSession, kb: RagKnowledgeBase) -> RagKnowledgeBase:
         db.add(kb)
         await db.flush()
-        return db
+        return kb
 
 
     @classmethod

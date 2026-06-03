@@ -52,7 +52,6 @@ async def upload_document(
 
     # 触发异步处理（MVP 阶段同步执行）
     await DocumentService.process_document(query_db, doc.doc_id)
-    await query_db.commit()
 
     return ResponseUtil.success(data={"doc_id": doc.doc_id, "file_path": object_name})
 
@@ -132,5 +131,4 @@ async def delete_document(
             # 逻辑删除数据库记录
             await DocumentDao.update_status(query_db, doc_id, del_flag='2')
 
-    await query_db.commit()
     return ResponseUtil.success(msg="删除成功")

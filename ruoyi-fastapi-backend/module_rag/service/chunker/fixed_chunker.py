@@ -31,6 +31,7 @@ class FixedChunker:
         paragraphs = text.split('\n\n')
         chunks = []
         current_chunk = ""
+        overlap_text = ""
 
         for para in paragraphs:
             para = para.strip()

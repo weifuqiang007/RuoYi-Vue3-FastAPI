@@ -15,6 +15,7 @@ class EmbeddingService:
     """
     BATCH_SIZE = 25  #智普API 每批次最多25条
 
+    #todo 未来换成硅集流动的模型。需要改动的地方有输入、输出的格式。如果有可能，需要改成一个公共的方法类
     @classmethod
     def _get_client(cls) -> AsyncOpenAI:
         return AsyncOpenAI(
@@ -38,7 +39,8 @@ class EmbeddingService:
                 try:
                     response = await client.embeddings.create(
                         model='embedding-3',
-                        input=batch
+                        input=batch,
+                        dimensions=1024,  # 指定输出 1024 维（pgvector 索引最大支持 2000 维，2048 超限）
                     )
                     batch_embeddings = [item.embedding for  item in response.data]
                     all_embeddings.extend(batch_embeddings)
