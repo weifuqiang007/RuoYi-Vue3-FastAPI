@@ -140,18 +140,18 @@ curl -X POST http://localhost:8080/rag/document/upload/1 \
 -- 文档状态应该从 0 → 1(解析中) → 2(完成)
 SELECT doc_id, doc_name, parse_status, embed_status, chunk_count
 FROM rag_document
-WHERE kb_id = 1;
+WHERE kb_id = 4;
 
 -- 分块记录应该有数据
 SELECT COUNT(*), AVG(token_count)
 FROM rag_chunk
-WHERE kb_id = 1;
+WHERE kb_id = 4;
 
 -- 验证向量已写入（embedding 不为空）
 SELECT chunk_id, LEFT(content, 50), token_count,
        CASE WHEN embedding IS NOT NULL THEN '有向量' ELSE '无向量' END AS vec_status
 FROM rag_chunk
-WHERE kb_id = 1
+WHERE kb_id = 4
 LIMIT 10;
 ```
 
@@ -165,7 +165,7 @@ curl -X POST http://localhost:8080/rag/retrieval/search \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "kb_ids": [1],
+    "kb_ids": [4],
     "query": "社会工作者如何处理服务对象的阻抗行为",
     "top_k": 5
   }'
