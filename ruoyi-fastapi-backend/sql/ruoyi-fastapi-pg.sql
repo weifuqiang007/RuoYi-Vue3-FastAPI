@@ -1340,3 +1340,7 @@ CREATE INDEX idx_rag_chunk_embedding ON rag_chunk USING ivfflat (embedding vecto
 CREATE INDEX idx_rag_chunk_kb_id ON rag_chunk(kb_id);
 CREATE INDEX idx_rag_chunk_doc_id ON rag_chunk(doc_id);
 CREATE INDEX idx_rag_chunk_content_fts ON rag_chunk USING gin(to_tsvector('simple', content));
+
+--- 这两个字段都用于存储错误/提示消息，长度不可控，用 TEXT 是合理的
+ALTER TABLE sys_logininfor ALTER COLUMN msg TYPE TEXT;
+ALTER TABLE sys_oper_log ALTER COLUMN error_msg TYPE TEXT;

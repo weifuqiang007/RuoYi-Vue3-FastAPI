@@ -16,6 +16,7 @@ def find_codec(blob: bytes)-> str:
     if detected['confidence'] > 0.5:
         if detected['encoding'] == "ascii":
             return "utf-8"
+        return detected['encoding']
 
     common_codecs = [
         'utf-8', 'gb2312', 'gbk', 'utf_16', 'ascii', 'big5',

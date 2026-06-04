@@ -13,7 +13,8 @@ class TxtParser:
         codec = find_codec(blob)
         text = blob.decode(codec, errors='ignore')
 
-        # 按空行分段
+        # 统一换行符后按空行分段
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
         paragraphs = text.split('\n\n')
         blocks = []
         for i, para in enumerate(paragraphs):

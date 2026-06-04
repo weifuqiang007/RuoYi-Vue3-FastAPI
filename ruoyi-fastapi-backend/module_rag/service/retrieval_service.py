@@ -43,12 +43,12 @@ class RetrievalService:
             SELECT
                 chunk_id, doc_id, kb_id, content,
                 metadata,
-                1 - (embedding <=> :query_vec::vector) AS score
+                1 - (embedding <=> CAST(:query_vec AS vector)) AS score
             FROM rag_chunk
             WHERE kb_id = ANY(:kb_ids)
               AND del_flag = '0'
               AND embedding IS NOT NULL
-            ORDER BY embedding <=> :query_vec::vector
+            ORDER BY embedding <=> CAST(:query_vec AS vector)
             LIMIT :top_k
         """)
         result = await db.execute(sql, {
