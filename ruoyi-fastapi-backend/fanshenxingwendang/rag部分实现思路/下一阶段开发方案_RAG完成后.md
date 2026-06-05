@@ -191,30 +191,48 @@ curl -X POST http://localhost:8080/rag/kb \
 
 ---
 
-## 阶段 0.5：封装统一 LLM 调用层（新增）
+## 阶段 0.5：统一 LLM 调用层（基于 module_ai 复用）
 
-> **目标**：为四区 AI 功能提供统一的 LLM 调用接口
-> **预计时间**：1 天
-> **交付物**：`LlmService` 类 + `parse_llm_json()` 工具函数
-> **为什么必须先做**：四区所有 AI 功能都需要调 LLM，不先封装好，API Key / 重试 / JSON 解析逻辑会重复散落各处
+> **目标**：为四区 AI 功能提供统一的 LLM 调用能力（非流式 + 流式）
+> **预计时间**：0.5 天
+> **交付物**：`utils/llm_json_parser.py` 工具函数 + `module_learning/service/llm_call.py` 调用函数
+> **核心原则**：复用 `module_ai` 已有的 Agno + `AiUtil` 基础设施，不造轮子
 
-### 问题背景
+### 为什么不需要新建 `module_learning/service/llm_service.py`
 
-文档里到处引用 `call_llm()`，但你项目里已有 `module_ai` 模块（从 `module_ai/controller/ai_chat_controller.py` 可以看出）。新模块 `module_learning` 不能各自为战，必须统一封装。
+项目已有完整的 LLM 调用体系：
 
-### 目录结构
+| 已有能力 | 对应代码 |
+|---|---|
+| 30+ 厂商多提供商模型工厂 | `utils/ai_util.py` → `AiUtil.get_model_from_factory()` |
+| 数据库驱动的模型配置（provider、api_key、base_url 全库存） | `module_ai/entity/do/ai_model_do.py` |
+| API Key 加密存储 | `utils/crypto_util.py` → `CryptoUtil` |
+| 流式对话 + Agent 会话管理 | `module_ai/service/ai_chat_service.py` |
+| SDK 按需延迟加载 | `utils/ai_util.py` → `_provider_class_cache` |
+
+如果新建 `LlmService` 硬编码环境变量，等于放弃数据库动态配置，是架构倒退。
+
+### 实际需要新增的文件
 
 ```
+utils/
+├── llm_json_parser.py              ← 全局 LLM JSON 解析工具
+
 module_learning/
 ├── service/
-│   ├── llm_service.py              ← 统一 LLM 调用层
-│   └── llm_json_parser.py          ← LLM JSON 输出解析器
+│   └── llm_call.py                 ← 三个调用函数（非流式/JSON/流式）
+├── controller/
+│   └── learning_chat_controller.py ← 流式/非流式对话接口
 ```
 
-### llm_json_parser.py（先写这个，所有 AI 接口都依赖它）
+---
+
+### 1. `utils/llm_json_parser.py`（全局工具）
+
+> 放在 `utils/` 而非 `module_learning/service/`，因为 `module_ai` 和其他模块也可能需要。
 
 ```python
-# module_learning/service/llm_json_parser.py
+# utils/llm_json_parser.py
 """
 LLM JSON 输出解析器
 大模型偶尔返回带 markdown 代码块的文本或不合法 JSON，这个工具兼容各种格式
@@ -268,117 +286,296 @@ def safe_parse_llm_json(text: str, default: dict = None) -> dict:
         return default or {}
 ```
 
-### llm_service.py
+---
+
+### 2. `module_learning/service/llm_call.py`（调用函数）
+
+> 不是 `LlmService` 类，而是三个简单函数。封装「从数据库读配置 → 解密 → 创建模型 → 调用」的流程。
 
 ```python
-# module_learning/service/llm_service.py
+# module_learning/service/llm_call.py
 """
-统一 LLM 调用层
-复用 module_ai 的模型配置，但调用方式独立（非流式 JSON 输出为主）
+LLM 调用封装（基于 module_ai 的 AiUtil 复用）
+三个函数：非流式 / JSON解析 / 流式，供四区 AI 功能调用
 """
-import os
-import asyncio
-from openai import AsyncOpenAI
-from module_learning.service.llm_json_parser import parse_llm_json
+import json
+from collections.abc import AsyncGenerator
+
+from agno.agent import Agent
+from agno.run.agent import RunEvent
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from utils.ai_util import AiUtil
+from utils.crypto_util import CryptoUtil
+from utils.common_util import CamelCaseUtil
+from utils.llm_json_parser import parse_llm_json
+from module_ai.dao.ai_model_dao import AiModelDao
+from module_ai.entity.vo.ai_model_vo import AiModelModel
 
 
-class LlmService:
-    """
-    统一的大模型调用服务
-    - 非流式调用（四区 AI 分析场景，需要完整 JSON 输出）
-    - 统一重试、超时、JSON 解析
-    - API 配置复用 .env.test 中的环境变量
-    """
+async def _get_model_from_db(query_db: AsyncSession, model_id: int):
+    """从数据库读取模型配置，创建 Agno 模型实例"""
+    ai_model = await AiModelDao.get_ai_model_detail_by_id(query_db, model_id)
+    if not ai_model:
+        raise ValueError(f"模型不存在: {model_id}")
+    model_config = AiModelModel(**CamelCaseUtil.transform_result(ai_model))
+    real_api_key = CryptoUtil.decrypt(model_config.api_key)
 
-    # 从环境变量读取配置（和 module_ai 保持一致）
-    API_KEY = os.getenv('ZHIPU_API_KEY', '')       # 或 DEEPSEEK_API_KEY
-    BASE_URL = os.getenv('LLM_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4')
-    MODEL_NAME = os.getenv('LLM_MODEL', 'glm-4-flash')   # 默认用便宜的模型
-    MAX_RETRIES = 3
-    TIMEOUT = 60  # 秒
-
-    @classmethod
-    def _get_client(cls) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            api_key=cls.API_KEY,
-            base_url=cls.BASE_URL,
-            timeout=cls.TIMEOUT,
-        )
-
-    @classmethod
-    async def chat(cls, prompt: str, system: str = None, max_tokens: int = 2000) -> str:
-        """
-        基础调用：发送 prompt，返回文本结果
-        """
-        client = cls._get_client()
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        for retry in range(cls.MAX_RETRIES):
-            try:
-                response = await client.chat.completions.create(
-                    model=cls.MODEL_NAME,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=0.7,
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                if retry == cls.MAX_RETRIES - 1:
-                    raise RuntimeError(f"LLM 调用失败（重试 {cls.MAX_RETRIES} 次后）: {str(e)}")
-                await asyncio.sleep(1 * (retry + 1))
-
-    @classmethod
-    async def chat_json(cls, prompt: str, system: str = None, max_tokens: int = 2000) -> dict:
-        """
-        JSON 调用：发送 prompt，返回解析后的 dict
-        自动处理 LLM 返回的各种 JSON 格式（带代码块、带前缀文字等）
-        """
-        raw_text = await cls.chat(prompt, system=system, max_tokens=max_tokens)
-        return parse_llm_json(raw_text)
-```
-
-### .env.test 追加配置
-
-```env
-# -------- LLM 统一调用配置 --------
-LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-LLM_MODEL=glm-4-flash
-# 或用 DeepSeek:
-# LLM_BASE_URL=https://api.deepseek.com/v1
-# LLM_MODEL=deepseek-chat
-```
-
-### 验收标准
-
-```python
-# tests/test_llm_service.py
-import asyncio
-from module_learning.service.llm_service import LlmService
-from module_learning.service.llm_json_parser import parse_llm_json
-
-async def test_llm():
-    # 测试基础调用
-    result = await LlmService.chat("请说一句话")
-    print(f"基础调用: {result}")
-
-    # 测试 JSON 调用
-    result = await LlmService.chat_json(
-        "请输出一个 JSON，包含 name 和 age 两个字段。只输出 JSON，不要其他内容。"
+    model = AiUtil.get_model_from_factory(
+        provider=model_config.provider,
+        model_code=model_config.model_code,
+        model_name=model_config.model_name,
+        api_key=real_api_key,
+        base_url=model_config.base_url,
+        temperature=model_config.temperature or 0.7,
+        max_tokens=model_config.max_tokens or 2000,
     )
-    print(f"JSON 调用: {result}")
-    assert "name" in result or "age" in result
+    return model
 
-    # 测试 JSON 解析器（兼容带代码块的输出）
+
+async def call_llm_non_stream(
+    query_db: AsyncSession,
+    model_id: int,
+    prompt: str,
+    system: str = None,
+) -> str:
+    """
+    非流式 LLM 调用（完整输出）
+    适用：四区 AI 分析，需要完整结果后再处理
+    """
+    model = await _get_model_from_db(query_db, model_id)
+    agent = Agent(
+        model=model,
+        description=system or 'You are a helpful AI assistant.',
+        markdown=True,
+    )
+    response = await agent.arun(prompt, stream=False)
+    return response.content
+
+
+async def call_llm_json(
+    query_db: AsyncSession,
+    model_id: int,
+    prompt: str,
+    system: str = None,
+) -> dict:
+    """
+    非流式调用 + JSON 解析
+    适用：需要 LLM 返回结构化数据的场景（决策分析、反思评估等）
+    """
+    raw_text = await call_llm_non_stream(query_db, model_id, prompt, system)
+    return parse_llm_json(raw_text)
+
+
+async def call_llm_stream(
+    query_db: AsyncSession,
+    model_id: int,
+    prompt: str,
+    system: str = None,
+    session_id: str = None,
+    user_id: str = None,
+) -> AsyncGenerator[str, None]:
+    """
+    流式 LLM 调用 → 返回 SSE 格式文本流
+    每个 chunk 是一行 JSON：{"content": "...", "type": "content"}
+    适用：AI 助手对话、苏格拉底式提问等实时交互场景
+    """
+    model = await _get_model_from_db(query_db, model_id)
+
+    agent_kwargs = {
+        'model': model,
+        'description': system or 'You are a helpful AI assistant.',
+        'markdown': True,
+    }
+    # 如果传入 session_id 和 user_id，启用会话存储（支持多轮对话）
+    if session_id and user_id:
+        agent_kwargs['db'] = AiUtil.get_storage_engine()
+        agent_kwargs['user_id'] = str(user_id)
+        agent_kwargs['session_id'] = session_id
+        agent_kwargs['add_history_to_context'] = True
+        agent_kwargs['num_history_runs'] = 3
+
+    agent = Agent(**agent_kwargs)
+
+    try:
+        yield json.dumps({'session_id': session_id, 'type': 'meta'}) + '\n'
+
+        response_stream = agent.arun(prompt, stream=True, stream_events=True)
+
+        async for chunk in response_stream:
+            content = None
+
+            if chunk.event == RunEvent.run_started and chunk.run_id:
+                yield json.dumps({'run_id': chunk.run_id, 'type': 'run_info'}) + '\n'
+
+            if chunk.event == RunEvent.run_content:
+                content = chunk.content
+
+            if content:
+                yield json.dumps({'content': content, 'type': 'content'}) + '\n'
+
+            if chunk.event == RunEvent.run_completed and chunk.metrics:
+                yield json.dumps({
+                    'metrics': {
+                        'input_tokens': chunk.metrics.input_tokens if chunk.metrics else None,
+                        'output_tokens': chunk.metrics.output_tokens if chunk.metrics else None,
+                    },
+                    'type': 'metrics'
+                }) + '\n'
+
+    except Exception as e:
+        yield json.dumps({'error': str(e), 'type': 'error'}) + '\n'
+```
+
+---
+
+### 3. `module_learning/controller/learning_chat_controller.py`（接口示例）
+
+```python
+# module_learning/controller/learning_chat_controller.py
+from typing import Annotated
+
+from fastapi import Body
+from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from common.aspect.db_seesion import DBSessionDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.router import APIRouterPro
+from module_admin.entity.vo.user_vo import CurrentUserModel
+from utils.response_util import ResponseUtil
+
+learning_chat_controller = APIRouterPro(
+    prefix='/learning/chat',
+    order_num=30,
+    tags=['学习模块-AI对话'],
+    dependencies=[PreAuthDependency()],
+)
+
+
+class LearningChatController:
+
+    @staticmethod
+    @learning_chat_controller.post('/send', summary='流式对话')
+    async def send_chat(
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        message: str = Body(..., embed=True, description='用户消息'),
+        model_id: int = Body(..., embed=True, description='模型ID'),
+        session_id: str = Body(None, embed=True, description='会话ID'),
+    ):
+        """流式对话接口，返回 SSE 流。"""
+        user_id = current_user.user.user_id if current_user and current_user.user else 1
+        from module_learning.service.llm_call import call_llm_stream
+
+        chat_stream = call_llm_stream(
+            query_db=query_db,
+            model_id=model_id,
+            prompt=message,
+            session_id=session_id,
+            user_id=str(user_id),
+        )
+        return StreamingResponse(content=chat_stream, media_type='text/event-stream')
+
+    @staticmethod
+    @learning_chat_controller.post('/analyze', summary='非流式分析')
+    async def analyze(
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        prompt: str = Body(..., embed=True, description='分析提示词'),
+        model_id: int = Body(..., embed=True, description='模型ID'),
+    ):
+        """非流式分析接口，返回完整文本结果。"""
+        from module_learning.service.llm_call import call_llm_non_stream
+        result = await call_llm_non_stream(query_db, model_id, prompt)
+        return ResponseUtil.success(data={'content': result})
+
+    @staticmethod
+    @learning_chat_controller.post('/analyze-json', summary='非流式 JSON 分析')
+    async def analyze_json(
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        prompt: str = Body(..., embed=True, description='分析提示词'),
+        model_id: int = Body(..., embed=True, description='模型ID'),
+    ):
+        """非流式分析接口，返回解析后的 JSON dict。"""
+        from module_learning.service.llm_call import call_llm_json
+        result = await call_llm_json(query_db, model_id, prompt)
+        return ResponseUtil.success(data=result)
+```
+
+---
+
+### 4. 验收标准
+
+```python
+# tests/test_llm_call.py
+"""LLM 调用层验收测试"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.llm_json_parser import parse_llm_json, safe_parse_llm_json
+
+
+def test_json_parser():
+    """测试 JSON 解析器（不需要网络）"""
+    assert parse_llm_json('{"key": "value"}') == {"key": "value"}
+
     parsed = parse_llm_json('```json\n{"key": "value"}\n```')
     assert parsed["key"] == "value"
 
-    print("✅ LLM 服务验收通过")
+    parsed = parse_llm_json('好的，以下是结果：\n{"key": "value"}')
+    assert parsed["key"] == "value"
 
-asyncio.run(test_llm())
+    result = safe_parse_llm_json("not json at all", default={"fallback": True})
+    assert result == {"fallback": True}
+
+    try:
+        parse_llm_json("")
+        assert False, "应该抛异常"
+    except ValueError:
+        pass
+
+    print("✅ JSON 解析器测试通过")
+
+
+# async def test_llm_non_stream():
+#     """测试非流式调用（需要数据库连接）"""
+#     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+#     from sqlalchemy.orm import sessionmaker
+#     from config.env import DataBaseConfig
+#
+#     engine = create_async_engine(DataBaseConfig.db_url)
+#     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+#
+#     async with async_session() as db:
+#         from module_learning.service.llm_call import call_llm_non_stream, call_llm_json
+#         model_id = 1
+#         result = await call_llm_non_stream(db, model_id, "请说一句话")
+#         print(f"非流式调用: {result}")
+#         result = await call_llm_json(db, model_id, "请输出 JSON，包含 name 和 age。只输出 JSON。")
+#         print(f"JSON 调用: {result}")
+#     print("✅ LLM 非流式调用测试通过")
+
+
+if __name__ == '__main__':
+    test_json_parser()
 ```
+
+---
+
+### 5. 方案总结
+
+| 问题 | 结论 |
+|---|---|
+| 新建 `llm_service.py` 类？ | ❌ 不需要，用 `AiUtil.get_model_from_factory()` |
+| 新建 `.env` LLM 配置？ | ❌ 不需要，模型配置在 `ai_models` 数据库表 |
+| 需要新增的文件 | ✅ `utils/llm_json_parser.py`（全局工具） |
+|  | ✅ `module_learning/service/llm_call.py`（三个调用函数） |
+|  | ✅ `module_learning/controller/learning_chat_controller.py`（接口） |
+| 非流式调用方式 | `AiUtil` → `Agent` → `arun(stream=False)` → `response.content` |
+| 流式调用方式 | `AiUtil` → `Agent` → `arun(stream=True, stream_events=True)` → SSE 流 |
+| JSON 解析方式 | `utils/llm_json_parser.parse_llm_json()` |
 
 ---
 
@@ -453,8 +650,7 @@ module_learning/
 │   └── vo/
 │       └── task_vo.py
 └── service/
-    ├── llm_service.py              ← 阶段0.5已创建
-    ├── llm_json_parser.py          ← 阶段0.5已创建
+    ├── llm_call.py                 ← 阶段0.5已创建（call_llm_non_stream / call_llm_json / call_llm_stream）
     └── task_service.py
 ```
 
@@ -755,7 +951,7 @@ CREATE TABLE edu_scenario_dialogue (
 # module_learning/service/scenario_service.py
 from module_rag.service.embedding_service import EmbeddingService
 from module_rag.service.retrieval_service import RetrievalService
-from module_learning.service.llm_service import LlmService
+from module_learning.service.llm_call import call_llm_json
 
 
 SCENARIO_ANALYZE_PROMPT = """你是一位经验丰富的社会工作督导，擅长帮助实习社工分析实践情境。
@@ -817,7 +1013,7 @@ class ScenarioAiEngine:
         )
 
         # 3. 调用 LLM（使用阶段 0.5 封装的统一服务）
-        result = await LlmService.chat_json(prompt, max_tokens=2000)
+        result = await call_llm_json(query_db, model_id, prompt)
         return result
 ```
 
@@ -1090,7 +1286,7 @@ CREATE TABLE edu_reflection_depth_history (
 # module_learning/service/reflection_ai_engine.py
 from module_rag.service.embedding_service import EmbeddingService
 from module_rag.service.retrieval_service import RetrievalService
-from module_learning.service.llm_service import LlmService
+from module_learning.service.llm_call import call_llm_json
 
 
 REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长通过提问帮助学生从"描述经历"走向"反身性反思"。
@@ -1190,7 +1386,7 @@ class ReflectionAiEngine:
             retrieved_knowledge=retrieved_knowledge or "（暂无相关理论参考）",
         )
 
-        result = await LlmService.chat_json(prompt, max_tokens=2000)
+        result = await call_llm_json(query_db, model_id, prompt)
         return result
 
     @classmethod
@@ -1235,7 +1431,7 @@ class ReflectionAiEngine:
 ```python
 # module_learning/service/reflection_service.py
 from datetime import datetime
-from module_learning.service.llm_service import LlmService
+from module_learning.service.llm_call import call_llm_json
 
 EVALUATE_THROTTLE_SECONDS = 30  # 【v2.0: 防抖间隔，避免频繁调 LLM】
 
@@ -1294,9 +1490,9 @@ class ReflectionService:
 
 输出：{{"depth_score": 0.65, "depth_level": "analytical"}}"""
 
-        result = await LlmService.chat_json(
+        result = await call_llm_json(
+            query_db, model_id,
             QUICK_EVAL_PROMPT.format(text=content[:500]),
-            max_tokens=50,
         )
         return result
 ```
@@ -1785,10 +1981,11 @@ from fastapi.responses import StreamingResponse
 
 @scenario_controller.post('/followup-stream', summary='AI 追问（流式）')
 async def followup_stream(data: FollowupRequest, query_db: ...):
-    async def generate():
-        async for chunk in LlmService.chat_stream(prompt):
-            yield f"data: {json.dumps({'content': chunk})}\n\n"
-        yield "data: [DONE]\n\n"
+    from module_learning.service.llm_call import call_llm_stream
+    return StreamingResponse(
+        call_llm_stream(query_db, model_id, prompt),
+        media_type='text/event-stream'
+    )
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 ```
@@ -1951,8 +2148,8 @@ async def ai_call(区的数据, task):
     # 3. 注入 Prompt
     prompt = PROMPT_TEMPLATE.format(retrieved_knowledge=format_chunks(chunks), ...)
 
-    # 4. 调用 LLM（使用阶段 0.5 封装的 LlmService）
-    result = await LlmService.chat_json(prompt)
+    # 4. 调用 LLM（使用阶段 0.5 封装的 call_llm_json）
+    result = await call_llm_json(query_db, model_id, prompt)
     return result
 ```
 
@@ -1970,9 +2167,9 @@ async def ai_call(区的数据, task):
 
 ### 阶段 0.5：封装统一 LLM 调用层（新增）
 - [ ] 实现 `llm_json_parser.py`（兼容各种 LLM JSON 输出格式）
-- [ ] 实现 `llm_service.py`（统一 LLM 调用 + 重试 + 超时）
-- [ ] 配置 `.env.test` 中的 LLM 环境变量
-- [ ] 验收：`LlmService.chat_json()` 正常返回 dict
+- [ ] 实现 `llm_call.py`（call_llm_non_stream / call_llm_json / call_llm_stream）
+- [ ] 实现 `learning_chat_controller.py`（流式/非流式对话接口）
+- [ ] 验收：`call_llm_json()` 正常返回 dict
 
 ### 阶段 1：教学任务管理
 - [ ] 建表：`edu_task`, `edu_task_class`
@@ -1991,7 +2188,7 @@ async def ai_call(区的数据, task):
 ### 阶段 3：情境区
 - [ ] 建表：`edu_scenario_data`, `edu_scenario_dialogue`
 - [ ] 实现情境保存接口（回填 record.scenario_id）
-- [ ] 实现 AI 首次分析接口（RAG + LlmService）
+- [ ] 实现 AI 首次分析接口（RAG + call_llm_json）
 - [ ] 实现 AI 追问接口
 - [ ] 实现确认进入决策区接口
 
@@ -2057,7 +2254,7 @@ async def ai_call(区的数据, task):
 - `module_ai`（已有的聊天模块）→ 直接面向用户的 AI 对话，流式输出
 - `module_learning`（新模块）→ 后台调用 LLM 做 RAG + 分析，非流式 JSON 输出
 
-两者底层 API 配置相同（API Key、模型名），但调用方式不同。通过 `LlmService` 统一管理。
+两者底层 API 配置相同（API Key、模型名），但调用方式不同。通过 `llm_call.py` 统一管理。
 
 ### 3. 事务管理注意
 
