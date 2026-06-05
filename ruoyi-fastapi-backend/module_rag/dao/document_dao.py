@@ -22,6 +22,16 @@ class DocumentDao:
         return list(result.scalars().all())
 
     @classmethod
+    async def get_all(cls, db: AsyncSession) -> list[RagDocument]:
+        """获取全部未删除的文档"""
+        result = await db.execute(
+            select(RagDocument)
+            .where(RagDocument.del_flag == '0')
+            .order_by(RagDocument.create_time.desc())
+        )
+        return list(result.scalars().all())
+
+    @classmethod
     async def create(cls, db: AsyncSession, doc: RagDocument) -> RagDocument:
         db.add(doc)
         await db.flush()
