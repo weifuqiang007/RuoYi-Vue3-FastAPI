@@ -54,3 +54,10 @@ export function getTaskDetail(taskId) {
   })
 }
 
+export function createStudentTask(data) {
+  return request({
+    url: '/learning/task/student/create',
+    method: 'post',
+    data: data
+  })
+}

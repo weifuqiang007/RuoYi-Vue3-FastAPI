@@ -1344,3 +1344,53 @@ CREATE INDEX idx_rag_chunk_content_fts ON rag_chunk USING gin(to_tsvector('simpl
 --- 这两个字段都用于存储错误/提示消息，长度不可控，用 TEXT 是合理的
 ALTER TABLE sys_logininfor ALTER COLUMN msg TYPE TEXT;
 ALTER TABLE sys_oper_log ALTER COLUMN error_msg TYPE TEXT;
+
+
+-- ============================================================
+-- V1.1 修订（2026-06-08）：edu_task 表支持学生自研课题
+-- 修订原因：原设计 teacher_id NOT NULL，仅教师可创建任务。
+--           学生自研课题通过 learning_record.task_id=NULL 实现，导致无法统一查询、教师无法查看学生自研。
+-- 修订方案：让 edu_task 同时支持教师创建和学生自建，
+--           新增 creator_type 区分来源，新增 student_id 记录学生创建者，teacher_id 改为可空。
+-- ============================================================
+
+-- 1. teacher_id 改为可空（学生创建时没有教师关联）
+ALTER TABLE edu_task ALTER COLUMN teacher_id DROP NOT NULL;
+COMMENT ON COLUMN edu_task.teacher_id IS '创建任务的教师用户ID，关联sys_user.user_id；学生自研课题时为NULL';
+
+-- 2. 新增 creator_type 字段：区分任务来源
+--    '0' = 教师创建的教学任务（原有逻辑不变）
+--    '1' = 学生自己创建的自研课题
+ALTER TABLE edu_task ADD COLUMN creator_type CHAR(1) DEFAULT '0';
+COMMENT ON COLUMN edu_task.creator_type IS '创建者类型（0教师创建的教学任务 1学生自己创建的自研课题）';
+
+-- 3. 新增 student_id 字段：学生创建时记录是哪个学生
+--    教师创建时为 NULL，学生创建时填写学生的 user_id
+--    用于：教师查看所管班级学生的自研课题列表
+ALTER TABLE edu_task ADD COLUMN student_id BIGINT;
+COMMENT ON COLUMN edu_task.student_id IS '学生创建者ID，关联sys_user.user_id；教师创建时为NULL，学生自研时填写自己的用户ID';
+
+-- 4. 新增索引：按学生ID快速查询自研课题（条件索引，只索引学生创建的记录）
+CREATE INDEX idx_edu_task_student ON edu_task(student_id) WHERE creator_type = '1';
+COMMENT ON INDEX idx_edu_task_student IS '按学生ID索引自研课题，仅索引creator_type=1的记录';
+
+
+-- ============================================================
+-- V1.1 修订：新增菜单 —— 反身性研究侧边栏（已通过脚本插入，此处留档备用）
+-- ============================================================
+-- 以下菜单数据已通过 scripts/insert_learning_menus.py 插入到 sys_menu 和 sys_role_menu 表中
+-- 如需重建，可执行该脚本或手动执行以下 SQL（注意清理旧数据）
+--
+-- 菜单结构：
+--   4000 反身性研究（顶层目录，所有角色可见）
+--     ├── 4100 我的任务（学生端）
+--     ├── 4101 我的研究记录（学生端）
+--     ├── 4200 教学任务管理（教师端）
+--     ├── 4201 班级研究监控（教师端）
+--     ├── 4202 评价管理（教师端）
+--     └── 4203 优秀案例库（教师端）
+--
+-- 角色分配：
+--   admin(role_id=1)   → 全部菜单 [4000,4100,4101,4200,4201,4202,4203]
+--   student(role_id=3) → 学生菜单 [4000,4100,4101]
+--   teacher(role_id=4) → 教师菜单 [4000,4200,4201,4202,4203]

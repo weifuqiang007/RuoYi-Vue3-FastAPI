@@ -18,6 +18,12 @@
     </el-row>
 
     <el-table v-loading="loading" :data="taskList">
+      <el-table-column label="类型" width="100" align="center">
+        <template #default="scope">
+          <el-tag v-if="String(scope.row.creator_type) === '1'" type="success">自研课题</el-tag>
+          <el-tag v-else type="primary">教学任务</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="200" show-overflow-tooltip />
       <el-table-column label="截止时间" prop="deadline" width="170" />
       <el-table-column label="状态" width="90" align="center">
@@ -46,6 +52,14 @@
         <el-form-item label="课题名称" required>
           <el-input v-model="selfTaskName" placeholder="请输入课题名称" />
         </el-form-item>
+        <el-form-item label="课题描述">
+          <el-input
+            v-model="selfTaskDescription"
+            type="textarea"
+            :rows="4"
+            placeholder="请输入课题描述（可选）"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="selfDialogVisible = false">取 消</el-button>
@@ -66,8 +80,8 @@
 
 <script setup name="StudentTaskList">
 import { ElMessage } from 'element-plus'
-import { listStudentTask, getTaskDetail } from '@/api/learning/task'
-import { startRecord, createSelfRecord } from '@/api/learning/record'
+import { listStudentTask, getTaskDetail, createStudentTask } from '@/api/learning/task'
+import { startRecord } from '@/api/learning/record'
 
 const router = useRouter()
 
@@ -81,18 +95,24 @@ const queryParams = ref({
 
 const selfDialogVisible = ref(false)
 const selfTaskName = ref('')
+const selfTaskDescription = ref('')
 const creating = ref(false)
 
 const detailVisible = ref(false)
 const detail = ref({})
 
 function normalizeTaskRow(row) {
+  const creatorType = row.creator_type ?? row.creatorType
   return {
     task_id: row.task_id ?? row.taskId,
     task_name: row.task_name ?? row.taskName,
     task_description: row.task_description ?? row.taskDescription,
     preset_scenario: row.preset_scenario ?? row.presetScenario,
-    deadline: row.deadline
+    deadline: row.deadline,
+    creator_type: creatorType ?? (row.source === 'self_study' ? '1' : '0'),
+    student_id: row.student_id ?? row.studentId,
+    teacher_id: row.teacher_id ?? row.teacherId,
+    source: row.source
   }
 }
 
@@ -111,6 +131,10 @@ function getList() {
 }
 
 async function handleStart(row) {
+  if (!row.task_id) {
+    ElMessage.warning('任务ID缺失，无法开始')
+    return
+  }
   const res = await startRecord(row.task_id)
   const recordId = res?.data?.record_id ?? res?.data?.recordId ?? res?.data?.record_id ?? res?.data
   if (!recordId) {
@@ -126,17 +150,15 @@ async function submitSelf() {
     ElMessage.warning('请输入课题名称')
     return
   }
+  const desc = selfTaskDescription.value.trim()
   creating.value = true
   try {
-    const res = await createSelfRecord({ task_name: name })
-    const recordId = res?.data?.record_id ?? res?.data?.recordId ?? res?.data
     selfDialogVisible.value = false
     selfTaskName.value = ''
-    if (recordId) {
-      await router.push({ path: '/learning/zone', query: { record_id: recordId } })
-    } else {
-      ElMessage.success('创建成功')
-    }
+    selfTaskDescription.value = ''
+    await createStudentTask({ task_name: name, task_description: desc || undefined })
+    ElMessage.success('创建成功')
+    getList()
   } finally {
     creating.value = false
   }
@@ -144,6 +166,7 @@ async function submitSelf() {
 
 function openSelfDialog() {
   selfTaskName.value = ''
+  selfTaskDescription.value = ''
   selfDialogVisible.value = true
 }
 

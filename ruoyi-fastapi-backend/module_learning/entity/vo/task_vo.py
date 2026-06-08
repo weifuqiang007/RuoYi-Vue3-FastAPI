@@ -43,7 +43,9 @@ class TaskVO(BaseModel):
     task_id: int
     task_name: str
     task_description: Optional[str] = None
-    teacher_id: int
+    teacher_id: Optional[int] = None
+    creator_type: Optional[str] = '0'
+    student_id: Optional[int] = None
     preset_scenario: Optional[str] = None
     scenario_kb_ids: Optional[list] = None
     decision_kb_ids: Optional[list] = None
@@ -57,3 +59,9 @@ class TaskVO(BaseModel):
     update_time: Optional[datetime] = None
 
     model_config = {'from_attributes': True}
+
+
+class StudentTaskCreateModel(BaseModel):
+    """学生自建自研课题请求"""
+    task_name: str = Field(..., max_length=200, description='课题名称')
+    task_description: Optional[str] = Field(None, description='课题描述')

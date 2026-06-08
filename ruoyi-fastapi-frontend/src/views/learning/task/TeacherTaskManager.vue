@@ -10,6 +10,12 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
+      <el-form-item label="类型">
+        <el-select v-model="creatorTypeFilter" placeholder="全部" clearable style="width: 160px">
+          <el-option label="教学任务" value="0" />
+          <el-option label="自研课题" value="1" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="状态" prop="status">
         <el-select v-model="queryParams.status" placeholder="状态" clearable style="width: 160px">
           <el-option label="草稿" value="0" />
@@ -29,8 +35,20 @@
       </el-col>
     </el-row>
 
-    <el-table v-loading="loading" :data="taskList">
+    <el-table v-loading="loading" :data="displayTaskList">
+      <el-table-column label="类型" width="100" align="center">
+        <template #default="scope">
+          <el-tag v-if="String(scope.row.creator_type) === '1'" type="success">自研课题</el-tag>
+          <el-tag v-else type="primary">教学任务</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="180" show-overflow-tooltip />
+      <el-table-column label="学生ID" width="110" align="center">
+        <template #default="scope">
+          <span v-if="String(scope.row.creator_type) === '1'">{{ scope.row.student_id }}</span>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="90" align="center">
         <template #default="scope">
           <el-tag :type="statusTagType(scope.row.status)">
@@ -42,15 +60,34 @@
       <el-table-column label="创建时间" prop="create_time" width="170" />
       <el-table-column label="操作" width="260" align="center">
         <template #default="scope">
-          <el-button link type="primary" icon="Edit" @click="handleEdit(scope.row)">编辑</el-button>
-          <el-button link type="danger" icon="Delete" @click="handleDelete(scope.row)">删除</el-button>
+          <el-button
+            v-if="String(scope.row.creator_type) !== '1'"
+            link
+            type="primary"
+            icon="Edit"
+            @click="handleEdit(scope.row)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            v-if="String(scope.row.creator_type) !== '1'"
+            link
+            type="danger"
+            icon="Delete"
+            @click="handleDelete(scope.row)"
+          >
+            删除
+          </el-button>
+          <el-button v-if="String(scope.row.creator_type) === '1'" link type="info" icon="View" @click="handleMore('detail', scope.row)">
+            详情
+          </el-button>
           <el-dropdown @command="(cmd) => handleMore(cmd, scope.row)">
             <span class="el-dropdown-link">
               更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="publish">发布到班级</el-dropdown-item>
+                <el-dropdown-item v-if="String(scope.row.creator_type) !== '1'" command="publish">发布到班级</el-dropdown-item>
                 <el-dropdown-item command="detail">查看详情</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -111,6 +148,7 @@ const loading = ref(false)
 const showSearch = ref(true)
 const taskList = ref([])
 const total = ref(0)
+const creatorTypeFilter = ref(undefined)
 
 const queryParams = ref({
   pageNum: 1,
@@ -145,7 +183,10 @@ function normalizeTaskRow(row) {
     research_kb_ids: row.research_kb_ids ?? row.researchKbIds ?? [],
     deadline: row.deadline,
     status: row.status,
-    create_time: row.create_time ?? row.createTime
+    create_time: row.create_time ?? row.createTime,
+    creator_type: row.creator_type ?? row.creatorType,
+    student_id: row.student_id ?? row.studentId,
+    teacher_id: row.teacher_id ?? row.teacherId
   }
 }
 
@@ -179,6 +220,12 @@ function getList() {
     })
 }
 
+const displayTaskList = computed(() => {
+  const filter = creatorTypeFilter.value
+  if (!filter) return taskList.value
+  return taskList.value.filter(item => String(item.creator_type) === String(filter))
+})
+
 function handleQuery() {
   queryParams.value.pageNum = 1
   getList()
@@ -187,6 +234,7 @@ function handleQuery() {
 function resetQuery() {
   queryParams.value.taskName = undefined
   queryParams.value.status = undefined
+  creatorTypeFilter.value = undefined
   queryRef.value?.resetFields?.()
   handleQuery()
 }
@@ -225,6 +273,7 @@ function handleDelete(row) {
 
 async function handleMore(cmd, row) {
   if (cmd === 'publish') {
+    if (String(row.creator_type) === '1') return
     publishTaskId.value = row.task_id
     publishDeptIds.value = []
     if (deptOptions.value.length === 0) {

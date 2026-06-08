@@ -9,7 +9,7 @@ from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageModel
 from module_admin.entity.vo.user_vo import CurrentUserModel
-from module_learning.entity.vo.task_vo import TaskCreateModel, TaskUpdateModel, TaskPublishModel
+from module_learning.entity.vo.task_vo import TaskCreateModel, TaskUpdateModel, TaskPublishModel, StudentTaskCreateModel
 from module_learning.service.task_service import TaskService
 from utils.response_util import ResponseUtil
 
@@ -24,7 +24,7 @@ task_controller = APIRouterPro(
 class TaskController:
 
     @staticmethod
-    @task_controller.get('/list', summary='教师任务列表')
+    @task_controller.get('/list', summary='教师任务列表（含所管班级学生自研课题）')
     async def get_teacher_tasks(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -36,7 +36,7 @@ class TaskController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @task_controller.post('/create', summary='创建任务')
+    @task_controller.post('/create', summary='教师创建教学任务')
     async def create_task(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -51,7 +51,22 @@ class TaskController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @task_controller.put('/update', summary='编辑任务')
+    @task_controller.post('/student/create', summary='学生自建自研课题')
+    async def create_student_task(
+        request: Request,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        data: StudentTaskCreateModel,
+    ) -> Response:
+        result = await TaskService.create_student_task(
+            query_db, data,
+            student_id=current_user.user.user_id,
+            create_by=current_user.user.user_name or '',
+        )
+        return ResponseUtil.success(data=result)
+
+    @staticmethod
+    @task_controller.put('/update', summary='编辑任务/课题')
     async def update_task(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -60,13 +75,13 @@ class TaskController:
     ) -> Response:
         result = await TaskService.update_task(
             query_db, data,
-            teacher_id=current_user.user.user_id,
+            user_id=current_user.user.user_id,
             update_by=current_user.user.user_name or '',
         )
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @task_controller.delete('/delete/{task_id}', summary='删除任务')
+    @task_controller.delete('/delete/{task_id}', summary='删除任务/课题')
     async def delete_task(
         request: Request,
         task_id: int,
@@ -104,7 +119,7 @@ class TaskController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @task_controller.get('/student/list', summary='学生任务列表')
+    @task_controller.get('/student/list', summary='学生任务列表（指派+自研）')
     async def get_student_tasks(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
