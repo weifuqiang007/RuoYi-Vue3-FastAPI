@@ -32,16 +32,6 @@ class RecordController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @record_controller.post('/create-self', summary='创建自研课题')
-    async def create_self_study(
-        request: Request,
-        query_db: Annotated[AsyncSession, DBSessionDependency()],
-        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    ) -> Response:
-        result = await RecordService.create_self_study(query_db, current_user.user.user_id)
-        return ResponseUtil.success(data=result)
-
-    @staticmethod
     @record_controller.get('/my', summary='我的学习记录')
     async def get_my_records(
         request: Request,

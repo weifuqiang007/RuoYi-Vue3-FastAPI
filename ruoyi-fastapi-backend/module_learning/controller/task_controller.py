@@ -13,6 +13,9 @@ from module_learning.entity.vo.task_vo import TaskCreateModel, TaskUpdateModel, 
 from module_learning.service.task_service import TaskService
 from utils.response_util import ResponseUtil
 
+
+from module_admin.dao.edu_dao import EduDao
+
 task_controller = APIRouterPro(
     prefix='/learning/task',
     order_num=31,
@@ -51,16 +54,21 @@ class TaskController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @task_controller.post('/student/create', summary='学生自建自研课题')
+    @task_controller.post('/student/create', summary='学生、老师自建自研课题')
     async def create_student_task(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
         data: StudentTaskCreateModel,
     ) -> Response:
-        result = await TaskService.create_student_task(
-            query_db, data,
-            student_id=current_user.user.user_id,
+        # 身份鉴权：根据 current_user.roles 判断角色，service 层自动设置正确的创建者字段
+        # student → student_id  teacher → teacher_id  admin → student_id
+        # 所有角色都只能为自己创建，user_id 来自 JWT 不可伪造
+        result = await TaskService.create_task_by_user(
+            query_db,
+            data,
+            user_id=current_user.user.user_id,
+            roles=current_user.roles,
             create_by=current_user.user.user_name or '',
         )
         return ResponseUtil.success(data=result)
@@ -128,10 +136,18 @@ class TaskController:
         page_size: int = 10,
     ) -> Response:
         # 获取学生班级ID
-        from module_admin.dao.edu_dao import EduDao
+
+        # 先查看当前用户是教师用户还是学生用户。
+        # 如果是学生用户，学生要看到老师指派的任务（未过期且未删除）以及自己创建的任务
+        # 如果是老师用户，老师要看到所辖学生全部的任务。包括老师自己指派的任务和学生自己创建的任务。
+
+        # 返回的数据要包括：1 班级、2 社工姓名、3 课题名称 4 任务简介 5 详细背景（没有即为空） 6 截止时间 7 详细信息（这里需要展示学生针对每一个问题的四个特性的提问和回答。可以点击做跳转，或者点击做弹窗） 8 点击处置按钮。处置这个我还没想好，暂时可不加
+        # 老师节点也是这样的。只不过老师不需要显示班级。剩下的也是一样的。
+        # admin用户要查看所有的教学任务和学生的反馈。
         profile = await EduDao.get_student_profile_by_user_id(query_db, current_user.user.user_id)
         class_id = profile.class_id if profile else None
-        result = await TaskService.get_student_tasks(query_db, current_user.user.user_id, class_id, page_num, page_size)
+        result = await TaskService.get_student_tasks(query_db, current_user.user.user_id, class_id,
+                                                      roles=current_user.roles, page_num=page_num, page_size=page_size)
         return ResponseUtil.success(data=result)
 
     @staticmethod

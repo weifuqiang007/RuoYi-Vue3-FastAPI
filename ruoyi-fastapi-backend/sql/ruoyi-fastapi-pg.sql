@@ -1358,20 +1358,28 @@ ALTER TABLE sys_oper_log ALTER COLUMN error_msg TYPE TEXT;
 ALTER TABLE edu_task ALTER COLUMN teacher_id DROP NOT NULL;
 COMMENT ON COLUMN edu_task.teacher_id IS '创建任务的教师用户ID，关联sys_user.user_id；学生自研课题时为NULL';
 
--- 2. 新增 creator_type 字段：区分任务来源
+-- 2. 新增 creator_type 字段：区分任务来源（幂等写法，已存在则跳过）
 --    '0' = 教师创建的教学任务（原有逻辑不变）
 --    '1' = 学生自己创建的自研课题
-ALTER TABLE edu_task ADD COLUMN creator_type CHAR(1) DEFAULT '0';
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='edu_task' AND column_name='creator_type') THEN
+        ALTER TABLE edu_task ADD COLUMN creator_type CHAR(1) DEFAULT '0';
+    END IF;
+END $$;
 COMMENT ON COLUMN edu_task.creator_type IS '创建者类型（0教师创建的教学任务 1学生自己创建的自研课题）';
 
--- 3. 新增 student_id 字段：学生创建时记录是哪个学生
+-- 3. 新增 student_id 字段：学生创建时记录是哪个学生（幂等写法，已存在则跳过）
 --    教师创建时为 NULL，学生创建时填写学生的 user_id
 --    用于：教师查看所管班级学生的自研课题列表
-ALTER TABLE edu_task ADD COLUMN student_id BIGINT;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='edu_task' AND column_name='student_id') THEN
+        ALTER TABLE edu_task ADD COLUMN student_id BIGINT;
+    END IF;
+END $$;
 COMMENT ON COLUMN edu_task.student_id IS '学生创建者ID，关联sys_user.user_id；教师创建时为NULL，学生自研时填写自己的用户ID';
 
--- 4. 新增索引：按学生ID快速查询自研课题（条件索引，只索引学生创建的记录）
-CREATE INDEX idx_edu_task_student ON edu_task(student_id) WHERE creator_type = '1';
+-- 4. 新增索引：按学生ID快速查询自研课题（幂等写法，已存在则跳过）
+CREATE INDEX IF NOT EXISTS idx_edu_task_student ON edu_task(student_id) WHERE creator_type = '1';
 COMMENT ON INDEX idx_edu_task_student IS '按学生ID索引自研课题，仅索引creator_type=1的记录';
 
 
@@ -1394,3 +1402,60 @@ COMMENT ON INDEX idx_edu_task_student IS '按学生ID索引自研课题，仅索
 --   admin(role_id=1)   → 全部菜单 [4000,4100,4101,4200,4201,4202,4203]
 --   student(role_id=3) → 学生菜单 [4000,4100,4101]
 --   teacher(role_id=4) → 教师菜单 [4000,4200,4201,4202,4203]
+
+
+-- ============================================================
+-- 阶段2：学习记录主表（四区联动状态机中枢）
+-- 说明：学生开始任务后创建记录，驱动 情境→决策→反思→研究→提交→完成 的状态流转
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS edu_learning_record (
+    record_id        BIGSERIAL PRIMARY KEY,
+    task_id          BIGINT REFERENCES edu_task(task_id),
+    student_id       BIGINT NOT NULL REFERENCES sys_user(user_id),
+    -- 当前阶段：scenario/decision/reflection/research/submitted/completed
+    current_stage    VARCHAR(20) DEFAULT 'scenario',
+    -- 各区完成状态：0未开始 1进行中 2已完成
+    scenario_status  CHAR(1) DEFAULT '0',
+    decision_status  CHAR(1) DEFAULT '0',
+    reflection_status CHAR(1) DEFAULT '0',
+    research_status  CHAR(1) DEFAULT '0',
+    -- 各区数据ID（方便快速查找，各区首次保存数据时回填）
+    scenario_id      BIGINT,
+    decision_id      BIGINT,
+    reflection_id    BIGINT,
+    research_id      BIGINT,
+    -- 整体状态
+    status           VARCHAR(20) DEFAULT 'ongoing',
+    score            DECIMAL(5,2),
+    teacher_feedback TEXT,
+    start_time       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submit_time      TIMESTAMP,
+    complete_time    TIMESTAMP,
+    del_flag         CHAR(1) DEFAULT '0',
+    create_by        VARCHAR(64) DEFAULT '',
+    create_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_by        VARCHAR(64) DEFAULT '',
+    update_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(task_id, student_id)
+);
+
+COMMENT ON TABLE edu_learning_record IS '学习记录主表（四区联动主控）';
+COMMENT ON COLUMN edu_learning_record.record_id IS '学习记录主键ID';
+COMMENT ON COLUMN edu_learning_record.task_id IS '关联的教学任务ID；V1.1修订后自研课题也有对应的edu_task记录(creator_type=1)，不再为NULL';
+COMMENT ON COLUMN edu_learning_record.student_id IS '学生用户ID';
+COMMENT ON COLUMN edu_learning_record.current_stage IS '当前所在阶段（scenario/decision/reflection/research/submitted/completed）';
+COMMENT ON COLUMN edu_learning_record.scenario_status IS '情境区完成状态（0未开始 1进行中 2已完成）';
+COMMENT ON COLUMN edu_learning_record.decision_status IS '决策区完成状态（0未开始 1进行中 2已完成）';
+COMMENT ON COLUMN edu_learning_record.reflection_status IS '反思区完成状态（0未开始 1进行中 2已完成）';
+COMMENT ON COLUMN edu_learning_record.research_status IS '研究生成区完成状态（0未开始 1进行中 2已完成）';
+COMMENT ON COLUMN edu_learning_record.scenario_id IS '关联的情境区数据ID';
+COMMENT ON COLUMN edu_learning_record.decision_id IS '关联的决策区数据ID';
+COMMENT ON COLUMN edu_learning_record.reflection_id IS '关联的反思区数据ID';
+COMMENT ON COLUMN edu_learning_record.research_id IS '关联的研究区数据ID';
+COMMENT ON COLUMN edu_learning_record.status IS '整体状态（ongoing进行中/submitted已提交/completed已完成）';
+COMMENT ON COLUMN edu_learning_record.score IS '教师评分';
+COMMENT ON COLUMN edu_learning_record.teacher_feedback IS '教师总评语';
+
+CREATE INDEX IF NOT EXISTS idx_record_student ON edu_learning_record(student_id);
+CREATE INDEX IF NOT EXISTS idx_record_task ON edu_learning_record(task_id);

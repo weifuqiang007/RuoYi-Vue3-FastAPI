@@ -7,13 +7,8 @@ export function startRecord(taskId) {
   })
 }
 
-export function createSelfRecord(data) {
-  return request({
-    url: '/learning/record/create-self',
-    method: 'post',
-    data: data
-  })
-}
+// 注意：自研课题创建已移至 task 层，使用 /learning/task/student/create 接口
+// 详见 api/learning/task.js 中的 createStudentTopic 方法
 
 export function listMyRecord(query) {
   return request({

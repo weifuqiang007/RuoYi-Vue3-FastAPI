@@ -5,10 +5,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module_learning.dao.task_dao import TaskDao
 from module_learning.entity.do.task_do import EduTask
 from module_learning.entity.vo.task_vo import TaskCreateModel, TaskUpdateModel, StudentTaskCreateModel
-from common.vo import CrudResponseModel
+from utils.page_util import PageUtil
+from module_admin.dao.edu_dao import EduDao
+
 
 
 class TaskService:
+
+    @classmethod
+    async def create_task_by_user(cls, db: AsyncSession, data: StudentTaskCreateModel,
+                                  user_id: int, roles: list, create_by: str = '') -> dict:
+        """
+        统一自研课题创建入口：根据用户角色自动设置创建者字段。
+        - student → creator_type='1', student_id=user_id（通过 /student/list 查看）
+        - teacher → creator_type='1', teacher_id=user_id（通过 /list 查看，匹配 teacher_id 条件）
+        - admin   → creator_type='1', student_id=user_id（通过 /student/list 查看）
+        """
+        role_keys = roles or []
+        is_teacher = 'teacher' in role_keys
+
+        task = EduTask(
+            task_name=data.task_name,
+            task_description=data.task_description,
+            creator_type= '0' if is_teacher else '1',
+            # 教师：通过 teacher_id 字段记录，这样 get_teacher_all_tasks 的 teacher_id==teacher_id 条件能匹配到
+            # 学生/管理员：通过 student_id 字段记录，这样 get_student_self_tasks 能匹配到
+            teacher_id=user_id if is_teacher else None,
+            student_id=user_id if not is_teacher else None,
+            status='1',  # 自研课题直接发布
+            create_by=create_by,
+        )
+        task = await TaskDao.create_task(db, task)
+        return {'task_id': task.task_id}
 
     @classmethod
     async def create_task(cls, db: AsyncSession, data: TaskCreateModel, teacher_id: int, create_by: str = '') -> dict:
@@ -29,6 +57,9 @@ class TaskService:
             create_by=create_by,
         )
         task = await TaskDao.create_task(db, task)
+        # 如果创建时就指定了班级，直接分配
+        if data.dept_ids:
+            await TaskDao.assign_classes(db, task.task_id, data.dept_ids)
         return {'task_id': task.task_id}
 
     @classmethod
@@ -56,12 +87,16 @@ class TaskService:
             raise PermissionError('无权修改他人任务')
         if task.creator_type == '1' and task.student_id != user_id:
             raise PermissionError('无权修改他人课题')
-        update_fields = data.model_dump(exclude_unset=True, exclude={'task_id'})
+        # 更新任务字段（排除 task_id 和 dept_ids）
+        update_fields = data.model_dump(exclude_unset=True, exclude={'task_id', 'dept_ids'})
         for k, v in update_fields.items():
             setattr(task, k, v)
         task.update_by = update_by
         task.update_time = datetime.now()
         await TaskDao.update_task(db, task)
+        # 如果传了 dept_ids，同步更新班级分配（仅教师任务）
+        if data.dept_ids is not None and task.creator_type == '0':
+            await TaskDao.assign_classes(db, task.task_id, data.dept_ids)
         return {'task_id': task.task_id}
 
     @classmethod
@@ -108,35 +143,60 @@ class TaskService:
     async def get_teacher_tasks(cls, db: AsyncSession, teacher_id: int, page_num: int = 1, page_size: int = 10) -> dict:
         """
         教师任务列表（V1.1 统一版）：
-        包含教师自己创建的任务 + 所管班级学生的自研课题。
+        包含教师自己创建的任务 + 所管班级学生的自研课题，每个任务携带分配的班级信息。
         """
-        from utils.page_util import PageUtil
-        from module_admin.dao.edu_dao import EduDao
-        # 获取教师所管理的班级ID列表
+
         teacher_classes = await EduDao.get_teacher_classes(db, teacher_id)
         class_ids = [tc['class_id'] for tc in teacher_classes]
-        tasks = await TaskDao.get_teacher_all_tasks(db, teacher_id, class_ids)
-        rows = [cls._task_to_dict(t) for t in tasks]
+        rows_data = await TaskDao.get_teacher_all_tasks(db, teacher_id, class_ids)
+        # 收集所有 task_id，批量查班级
+        task_ids = [row[0].task_id for row in rows_data]
+        class_mapping = await TaskDao.get_assigned_classes_batch(db, task_ids)
+        rows = [
+            cls._task_to_dict(
+                row[0], teacher_name=row[1], student_name=row[2],
+                assigned_classes=class_mapping.get(row[0].task_id, [])
+            )
+            for row in rows_data
+        ]
         return PageUtil.get_page_obj(rows, page_num, page_size).model_dump()
 
     @classmethod
-    async def get_student_tasks(cls, db: AsyncSession, student_id: int, class_id: int | None, page_num: int = 1, page_size: int = 10) -> dict:
+    async def get_student_tasks(cls, db: AsyncSession, student_id: int, class_id: int | None,
+                                roles: list | None = None, page_num: int = 1, page_size: int = 10) -> dict:
         """
         学生任务列表（V1.1 统一版）：
-        教师指派的任务（通过班级分配）+ 自己的自研课题。
-        全部统一从 edu_task 表查询，废弃旧的 task_id=NULL 临时方案。
+        - admin：看到所有任务（教师任务 + 学生自研课题）
+        - 学生：教师指派的任务（通过班级分配）+ 自己的自研课题
         """
         from utils.page_util import PageUtil
+        role_keys = roles or []
         tasks = []
-        # 1. 教师指派的任务（通过班级分配）
-        if class_id:
-            published = await TaskDao.get_published_tasks_by_dept_ids(db, [class_id])
-            for t in published:
-                tasks.append(cls._task_to_dict(t, source='assigned'))
-        # 2. 自己创建的自研课题（从 edu_task 表直接查询）
-        self_tasks = await TaskDao.get_student_self_tasks(db, student_id)
-        for t in self_tasks:
-            tasks.append(cls._task_to_dict(t, source='self_study'))
+
+        if 'admin' in role_keys:
+            # admin 能看到所有任务
+            rows_data = await TaskDao.get_all_tasks_for_admin(db)
+            task_ids = [row[0].task_id for row in rows_data]
+            class_mapping = await TaskDao.get_assigned_classes_batch(db, task_ids)
+            for row in rows_data:
+                task = row[0]
+                source = 'self_study' if task.creator_type == '1' else 'teacher'
+                tasks.append(cls._task_to_dict(
+                    task, source=source,
+                    teacher_name=row[1], student_name=row[2],
+                    assigned_classes=class_mapping.get(task.task_id, []),
+                ))
+        else:
+            # 1. 教师指派的任务
+            if class_id:
+                published = await TaskDao.get_published_tasks_by_dept_ids(db, [class_id])
+                for t in published:
+                    tasks.append(cls._task_to_dict(t, source='assigned'))
+            # 2. 自己的自研课题
+            self_tasks = await TaskDao.get_student_self_tasks(db, student_id)
+            for t in self_tasks:
+                tasks.append(cls._task_to_dict(t, source='self_study'))
+
         return PageUtil.get_page_obj(tasks, page_num, page_size).model_dump()
 
     @classmethod
@@ -180,17 +240,22 @@ class TaskService:
         return {'task_id': new_task.task_id}
 
     @classmethod
-    def _task_to_dict(cls, task: EduTask, source: str = 'teacher') -> dict:
+    def _task_to_dict(cls, task: EduTask, source: str = 'teacher',
+                      teacher_name: str | None = None, student_name: str | None = None,
+                      assigned_classes: list | None = None) -> dict:
         return {
             'task_id': task.task_id,
             'task_name': task.task_name,
             'task_description': task.task_description,
             'teacher_id': task.teacher_id,
+            'teacher_name': teacher_name,
             'creator_type': task.creator_type,
             'student_id': task.student_id,
+            'student_name': student_name,
             'preset_scenario': task.preset_scenario,
             'deadline': str(task.deadline) if task.deadline else None,
             'status': task.status,
             'source': source,
+            'assigned_classes': assigned_classes or [],
             'create_time': str(task.create_time) if task.create_time else None,
         }

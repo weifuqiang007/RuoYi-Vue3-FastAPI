@@ -16,6 +16,7 @@ class TaskCreateModel(BaseModel):
     scenario_config: Optional[dict] = Field(None, description='情境区AI配置')
     reflection_config: Optional[dict] = Field(None, description='反思区AI配置')
     deadline: Optional[datetime] = Field(None, description='截止时间')
+    dept_ids: Optional[list[int]] = Field(None, description='分配的班级ID列表')
 
 
 class TaskUpdateModel(BaseModel):
@@ -31,6 +32,7 @@ class TaskUpdateModel(BaseModel):
     scenario_config: Optional[dict] = Field(None, description='情境区AI配置')
     reflection_config: Optional[dict] = Field(None, description='反思区AI配置')
     deadline: Optional[datetime] = Field(None, description='截止时间')
+    dept_ids: Optional[list[int]] = Field(None, description='分配的班级ID列表，传此字段则覆盖原有分配')
 
 
 class TaskPublishModel(BaseModel):

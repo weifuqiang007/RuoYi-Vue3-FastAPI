@@ -43,10 +43,10 @@
         </template>
       </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="180" show-overflow-tooltip />
-      <el-table-column label="学生ID" width="110" align="center">
+      <el-table-column label="创建者" width="110" align="center">
         <template #default="scope">
-          <span v-if="String(scope.row.creator_type) === '1'">{{ scope.row.student_id }}</span>
-          <span v-else>-</span>
+          <span v-if="String(scope.row.creator_type) === '1'">{{ scope.row.student_name || '-' }}</span>
+          <span v-else>{{ scope.row.teacher_name || '我' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="90" align="center">
@@ -54,6 +54,22 @@
           <el-tag :type="statusTagType(scope.row.status)">
             {{ statusLabel(scope.row.status) }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="任务简述" prop="task_description" min-width="220" show-overflow-tooltip />
+      <el-table-column label="分配班级" min-width="160" show-overflow-tooltip>
+        <template #default="scope">
+          <template v-if="scope.row.creator_type === '1'">
+            <span style="color: #909399;">-</span>
+          </template>
+          <template v-else-if="scope.row.assigned_classes && scope.row.assigned_classes.length > 0">
+            <el-tag v-for="c in scope.row.assigned_classes" :key="c.dept_id" size="small" class="mr4">
+              {{ c.dept_name }}
+            </el-tag>
+          </template>
+          <template v-else>
+            <span style="color: #e6a23c;">未分配</span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="截止时间" prop="deadline" width="170" />
@@ -186,7 +202,10 @@ function normalizeTaskRow(row) {
     create_time: row.create_time ?? row.createTime,
     creator_type: row.creator_type ?? row.creatorType,
     student_id: row.student_id ?? row.studentId,
-    teacher_id: row.teacher_id ?? row.teacherId
+    student_name: row.student_name ?? row.studentName,
+    teacher_id: row.teacher_id ?? row.teacherId,
+    teacher_name: row.teacher_name ?? row.teacherName,
+    assigned_classes: row.assigned_classes ?? []
   }
 }
 
@@ -316,3 +335,7 @@ onMounted(() => {
   getList()
 })
 </script>
+
+<style scoped>
+.mr4 { margin-right: 4px; }
+</style>

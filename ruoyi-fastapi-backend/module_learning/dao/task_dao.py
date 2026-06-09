@@ -1,6 +1,9 @@
 from sqlalchemy import delete, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from module_admin.entity.do.dept_do import SysDept
+from module_admin.entity.do.user_do import SysUser
 from module_learning.entity.do.task_do import EduTask, EduTaskClass
 
 
@@ -33,28 +36,51 @@ class TaskDao:
     async def get_teacher_all_tasks(cls, db: AsyncSession, teacher_id: int, class_ids: list[int]) -> list:
         """
         教师视角：获取自己创建的任务 + 所管班级学生的自研课题。
-        teacher_id: 当前教师用户ID
-        class_ids: 教师所管理的班级ID列表
+        返回 [(EduTask, teacher_nick_name, student_nick_name), ...]
         """
         from module_admin.entity.do.edu_do import EduStudentProfile
-        # 子查询：所管班级内所有学生的 user_id
+        TeacherUser = aliased(SysUser)
+        StudentUser = aliased(SysUser)
         student_subq = (
             select(EduStudentProfile.user_id)
             .where(EduStudentProfile.class_id.in_(class_ids))
         )
-        # 主查询：教师自己的任务 OR 所管班级学生的自研课题
         result = await db.execute(
-            select(EduTask)
+            select(EduTask, TeacherUser.nick_name, StudentUser.nick_name)
+            .outerjoin(TeacherUser, EduTask.teacher_id == TeacherUser.user_id)
+            .outerjoin(StudentUser, EduTask.student_id == StudentUser.user_id)
             .where(
                 EduTask.del_flag == '0',
                 or_(
-                    EduTask.teacher_id == teacher_id,  # 教师自己创建的
-                    EduTask.student_id.in_(student_subq),  # 所管班级学生的自研课题
+                    EduTask.teacher_id == teacher_id,
+                    EduTask.student_id.in_(student_subq),
                 )
             )
             .order_by(desc(EduTask.create_time))
         )
-        return list(result.scalars().all())
+        return list(result.all())
+
+    @classmethod
+    async def get_assigned_classes_batch(cls, db: AsyncSession, task_ids: list[int]) -> dict:
+        """
+        批量获取多个任务分配的班级信息。
+        返回 { task_id: [{'dept_id': x, 'dept_name': 'xx'}, ...], ... }
+        """
+        if not task_ids:
+            return {}
+        result = await db.execute(
+            select(EduTaskClass.task_id, SysDept.dept_id, SysDept.dept_name)
+            .select_from(EduTaskClass)
+            .outerjoin(SysDept, EduTaskClass.dept_id == SysDept.dept_id)
+            .where(EduTaskClass.task_id.in_(task_ids))
+        )
+        mapping: dict[int, list] = {}
+        for row in result.all():
+            tid = row[0]
+            if tid not in mapping:
+                mapping[tid] = []
+            mapping[tid].append({'dept_id': row[1], 'dept_name': row[2]})
+        return mapping
 
     @classmethod
     async def get_student_self_tasks(cls, db: AsyncSession, student_id: int) -> list:
@@ -108,11 +134,29 @@ class TaskDao:
         await db.flush()
 
     @classmethod
-    async def get_assigned_classes(cls, db: AsyncSession, task_id: int) -> list[int]:
+    async def get_assigned_classes(cls, db: AsyncSession, task_id: int) -> list[dict]:
+        """获取单个任务分配的班级信息，返回 [{'dept_id': x, 'dept_name': 'xx'}, ...]"""
         result = await db.execute(
-            select(EduTaskClass.dept_id).where(EduTaskClass.task_id == task_id)
+            select(EduTaskClass.dept_id, SysDept.dept_name)
+            .select_from(EduTaskClass)
+            .outerjoin(SysDept, EduTaskClass.dept_id == SysDept.dept_id)
+            .where(EduTaskClass.task_id == task_id)
         )
-        return [r[0] for r in result.all()]
+        return [{'dept_id': r[0], 'dept_name': r[1]} for r in result.all()]
+
+    @classmethod
+    async def get_all_tasks_for_admin(cls, db: AsyncSession) -> list:
+        """管理员视角：获取所有任务（含教师任务和学生自研课题），附带创建者姓名"""
+        TeacherUser = aliased(SysUser)
+        StudentUser = aliased(SysUser)
+        result = await db.execute(
+            select(EduTask, TeacherUser.nick_name, StudentUser.nick_name)
+            .outerjoin(TeacherUser, EduTask.teacher_id == TeacherUser.user_id)
+            .outerjoin(StudentUser, EduTask.student_id == StudentUser.user_id)
+            .where(EduTask.del_flag == '0')
+            .order_by(desc(EduTask.create_time))
+        )
+        return list(result.all())
 
     @classmethod
     async def get_all_published_tasks(cls, db: AsyncSession) -> list:

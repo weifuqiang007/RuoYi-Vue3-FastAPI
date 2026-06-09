@@ -15,7 +15,7 @@ class EduTask(Base):
     task_name = Column(String(200), nullable=False, comment='任务名称，如"张大爷案例行动研究"')
     task_description = Column(Text, comment='任务描述/给学生看的引导语，说明任务要求和目标')
     teacher_id = Column(BigInteger, nullable=True, comment='创建任务的教师用户ID，关联sys_user.user_id；学生自研课题时为NULL')
-    creator_type = Column(CHAR(1), server_default='0', comment='创建者类型（0教师创建的教学任务 1学生自己创建的自研课题）')
+    creator_type = Column(CHAR(1), server_default='0', comment='创建者类型（0教师创建的教学任务 1学生自己创建的自研课题 2 admin用户创建的课题）')
     student_id = Column(BigInteger, nullable=True, comment='学生创建者ID，关联sys_user.user_id；教师创建时为NULL，学生自研时填写自己的用户ID')
     # 教师可预先指定一个情境场景（可选），学生进入情境区时会自动填入
     preset_scenario = Column(Text, comment='预设情境文本，教师可为学生指定一个场景描述，为空则学生自行填写')

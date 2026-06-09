@@ -25,6 +25,13 @@
         </template>
       </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="200" show-overflow-tooltip />
+      <el-table-column label="发布教师" width="110" align="center">
+        <template #default="scope">
+          <span v-if="String(scope.row.creator_type) === '0'">{{ scope.row.teacher_name || '-' }}</span>
+          <span v-else style="color: #67c23a;">自研</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="任务简述" prop="task_description" min-width="220" show-overflow-tooltip />
       <el-table-column label="截止时间" prop="deadline" width="170" />
       <el-table-column label="状态" width="90" align="center">
         <template #default="scope">
@@ -111,7 +118,9 @@ function normalizeTaskRow(row) {
     deadline: row.deadline,
     creator_type: creatorType ?? (row.source === 'self_study' ? '1' : '0'),
     student_id: row.student_id ?? row.studentId,
+    student_name: row.student_name ?? row.studentName,
     teacher_id: row.teacher_id ?? row.teacherId,
+    teacher_name: row.teacher_name ?? row.teacherName,
     source: row.source
   }
 }

@@ -28,22 +28,13 @@ class RecordService:
     async def start_task(cls, db: AsyncSession, task_id: int, student_id: int) -> dict:
         """学生开始任务，创建学习记录"""
         # 检查是否已有记录
+
+        # 这也是需要区分学生还是老师。学生可以继续走当前的业务，老师需要
         existing = await RecordDao.get_by_task_and_student(db, task_id, student_id)
         if existing:
             return {'record_id': existing.record_id, 'current_stage': existing.current_stage}
         record = EduLearningRecord(
             task_id=task_id,
-            student_id=student_id,
-            create_by=str(student_id),
-        )
-        record = await RecordDao.create(db, record)
-        return {'record_id': record.record_id, 'current_stage': record.current_stage}
-
-    @classmethod
-    async def create_self_study(cls, db: AsyncSession, student_id: int) -> dict:
-        """创建自研课题"""
-        record = EduLearningRecord(
-            task_id=None,
             student_id=student_id,
             create_by=str(student_id),
         )

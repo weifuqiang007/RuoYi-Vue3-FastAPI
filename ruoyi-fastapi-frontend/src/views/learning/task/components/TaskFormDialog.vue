@@ -28,19 +28,48 @@
         <el-input v-model="form.preset_scenario" type="textarea" :rows="4" placeholder="可不填（学生可自行填写）" />
       </el-form-item>
 
+      <el-form-item label="分配班级">
+        <el-select
+          v-model="form.dept_ids"
+          multiple
+          filterable
+          clearable
+          placeholder="可选择多个班级"
+          style="width: 100%"
+        >
+          <el-option v-for="d in deptOptions" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
+        </el-select>
+      </el-form-item>
+
       <el-divider content-position="left">各区知识库配置</el-divider>
 
       <el-row :gutter="14">
         <el-col :span="12">
           <el-form-item label="情境区KB">
-            <el-select v-model="form.scenario_kb_ids" multiple filterable clearable style="width: 100%">
+            <el-select
+              v-model="form.scenario_kb_ids"
+              multiple
+              filterable
+              clearable
+              style="width: 100%"
+              :loading="kbLoading"
+              @visible-change="handleKbVisibleChange"
+            >
               <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="决策区KB">
-            <el-select v-model="form.decision_kb_ids" multiple filterable clearable style="width: 100%">
+            <el-select
+              v-model="form.decision_kb_ids"
+              multiple
+              filterable
+              clearable
+              style="width: 100%"
+              :loading="kbLoading"
+              @visible-change="handleKbVisibleChange"
+            >
               <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
             </el-select>
           </el-form-item>
@@ -49,14 +78,30 @@
       <el-row :gutter="14">
         <el-col :span="12">
           <el-form-item label="反思区KB">
-            <el-select v-model="form.reflection_kb_ids" multiple filterable clearable style="width: 100%">
+            <el-select
+              v-model="form.reflection_kb_ids"
+              multiple
+              filterable
+              clearable
+              style="width: 100%"
+              :loading="kbLoading"
+              @visible-change="handleKbVisibleChange"
+            >
               <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="研究区KB">
-            <el-select v-model="form.research_kb_ids" multiple filterable clearable style="width: 100%">
+            <el-select
+              v-model="form.research_kb_ids"
+              multiple
+              filterable
+              clearable
+              style="width: 100%"
+              :loading="kbLoading"
+              @visible-change="handleKbVisibleChange"
+            >
               <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
             </el-select>
           </el-form-item>
@@ -75,6 +120,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
+import { listDept } from '@/api/system/dept'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -90,6 +136,10 @@ const visible = computed({
 const title = computed(() => (props.data?.task_id ? '编辑任务' : '创建任务'))
 
 const kbOptions = ref([])
+const kbLoading = ref(false)
+const kbLoaded = ref(false)
+const deptOptions = ref([])
+const deptLoaded = ref(false)
 const formRef = ref()
 const submitting = ref(false)
 
@@ -102,7 +152,8 @@ const form = reactive({
   decision_kb_ids: [],
   reflection_kb_ids: [],
   research_kb_ids: [],
-  deadline: ''
+  deadline: '',
+  dept_ids: []
 })
 
 const rules = {
@@ -110,8 +161,42 @@ const rules = {
 }
 
 async function loadKbOptions() {
-  const res = await listKnowledgeBase()
-  kbOptions.value = res.data || []
+  if (kbLoading.value) return
+  kbLoading.value = true
+  try {
+    const res = await listKnowledgeBase()
+    const data = res?.data
+    kbOptions.value = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    kbLoaded.value = true
+  } catch (e) {
+    kbOptions.value = []
+    kbLoaded.value = false
+    ElMessage.error(e?.message || '获取知识库列表失败')
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+async function loadDeptOptions() {
+  if (deptLoaded.value) return
+  try {
+    const res = await listDept()
+    deptOptions.value = res.data || []
+    deptLoaded.value = true
+  } catch (e) {
+    deptOptions.value = []
+  }
+}
+
+async function ensureKbOptions() {
+  if (kbLoaded.value && kbOptions.value.length > 0) return
+  await loadKbOptions()
+}
+
+async function handleKbVisibleChange(v) {
+  if (v) {
+    await ensureKbOptions()
+  }
 }
 
 function resetFormFromProps() {
@@ -125,6 +210,9 @@ function resetFormFromProps() {
   form.reflection_kb_ids = (d.reflection_kb_ids ?? d.reflectionKbIds ?? []).slice?.() || []
   form.research_kb_ids = (d.research_kb_ids ?? d.researchKbIds ?? []).slice?.() || []
   form.deadline = d.deadline ?? ''
+  // 回显已分配的班级：从 assigned_classes 中提取 dept_id 列表
+  const ac = d.assigned_classes ?? d.assignedClasses ?? []
+  form.dept_ids = Array.isArray(ac) ? ac.map(c => c.dept_id ?? c.deptId) : []
   formRef.value?.clearValidate?.()
 }
 
@@ -141,7 +229,8 @@ async function submit() {
       decision_kb_ids: form.decision_kb_ids,
       reflection_kb_ids: form.reflection_kb_ids,
       research_kb_ids: form.research_kb_ids,
-      deadline: form.deadline || null
+      deadline: form.deadline || null,
+      dept_ids: form.dept_ids
     })
     visible.value = false
   } catch (e) {
@@ -155,12 +244,9 @@ watch(
   () => visible.value,
   async (v) => {
     if (v) {
-      if (kbOptions.value.length === 0) {
-        await loadKbOptions()
-      }
+      await Promise.all([ensureKbOptions(), loadDeptOptions()])
       resetFormFromProps()
     }
   }
 )
 </script>
-
