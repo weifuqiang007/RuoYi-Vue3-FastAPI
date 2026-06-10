@@ -21,7 +21,7 @@ const requestUrl = '/learning/scenario/followup'
 function buildPayload(text) {
   return {
     scenario_id: props.scenarioId,
-    message: text
+    user_message: text
   }
 }
 </script>

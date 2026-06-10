@@ -13,7 +13,7 @@ class EduLearningRecord(Base):
 
     record_id = Column(BigInteger, primary_key=True, autoincrement=True, comment='学习记录主键ID')
     task_id = Column(BigInteger, comment='关联的教学任务ID，关联edu_task.task_id；为NULL时表示学生自研课题')
-    student_id = Column(BigInteger, nullable=False, comment='学生用户ID，关联sys_user.user_id')
+    user_id = Column(BigInteger, nullable=False, comment='记录所属用户ID（支持student/teacher/admin），关联sys_user.user_id')
     # 当前所在阶段，驱动四区状态机流转：scenario→decision→reflection→research→submitted→completed
     current_stage = Column(String(20), server_default='scenario', comment='当前所在阶段（scenario/decision/reflection/research/submitted/completed）')
     # 各区完成状态，用于前端展示进度和状态机前置校验

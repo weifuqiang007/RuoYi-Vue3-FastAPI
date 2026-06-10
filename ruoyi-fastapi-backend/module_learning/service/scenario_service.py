@@ -1,3 +1,5 @@
+import json
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,7 @@ from module_learning.dao.scenario_dao import ScenarioDao
 from module_learning.dao.record_dao import RecordDao
 from module_learning.entity.do.scenario_do import EduScenarioData, EduScenarioDialogue
 from module_learning.entity.vo.scenario_vo import ScenarioSaveModel
+from utils.llm_json_parser import parse_llm_json
 
 
 # 情境区AI分析 Prompt
@@ -58,7 +61,7 @@ SCENARIO_FOLLOWUP_PROMPT = """你是一位经验丰富的社会工作督导。
 class ScenarioService:
 
     @classmethod
-    async def save(cls, db: AsyncSession, data: ScenarioSaveModel, student_id: int) -> dict:
+    async def save(cls, db: AsyncSession, data: ScenarioSaveModel, user_id: int) -> dict:
         """保存/更新情境描述"""
         record = await RecordDao.get_by_id(db, data.record_id)
         if not record:
@@ -69,7 +72,7 @@ class ScenarioService:
         if not scenario:
             scenario = EduScenarioData(
                 record_id=data.record_id,
-                student_id=student_id,
+                user_id=user_id,
             )
             scenario = await ScenarioDao.create(db, scenario)
             # 回填 record
@@ -133,8 +136,72 @@ class ScenarioService:
         return result
 
     @classmethod
+    async def analyze_stream(cls, db: AsyncSession, scenario_id: int, model_id: int = 1) -> AsyncGenerator[str, None]:
+        """AI分析情境 — SSE 流式版本"""
+        scenario = await ScenarioDao.get_by_id(db, scenario_id)
+        if not scenario:
+            yield json.dumps({'type': 'error', 'message': '情境数据不存在'}) + '\n'
+            return
+
+        # 步骤1：RAG 检索
+        yield json.dumps({'type': 'status', 'message': '正在检索知识库...'}) + '\n'
+        knowledge_context = await cls._retrieve_knowledge(db, scenario)
+
+        # 步骤2：构建 Prompt
+        yield json.dumps({'type': 'status', 'message': 'AI 分析中...'}) + '\n'
+        prompt = SCENARIO_ANALYZE_PROMPT.format(
+            retrieved_knowledge=knowledge_context,
+            student_scenario=scenario.description or '',
+        )
+
+        # 步骤3：流式调用 LLM，累积全文
+        from module_learning.service.llm_call import AiCall
+        full_text = ''
+        async for chunk in AiCall.call_llm_stream(db, model_id, prompt):
+            # chunk 是 JSON 字符串，转发给前端
+            yield chunk
+            # 提取 content 用于累积
+            try:
+                parsed = json.loads(chunk.strip())
+                if parsed.get('type') == 'content' and parsed.get('content'):
+                    full_text += parsed['content']
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        # 步骤4：解析 JSON 结果并保存
+        try:
+            result = parse_llm_json(full_text)
+            if 'key_events' in result:
+                scenario.key_events = result['key_events']
+            if 'identified_problems' in result:
+                scenario.identified_problems = result['identified_problems']
+            if 'category_tags' in result:
+                scenario.category_tags = result['category_tags']
+            scenario.update_time = datetime.now()
+            await ScenarioDao.update(db, scenario)
+
+            # 保存 AI 对话记录
+            await ScenarioDao.add_dialogue(db, EduScenarioDialogue(
+                scenario_id=scenario_id,
+                role='assistant',
+                content=str(result),
+                dialogue_type='analyze',
+            ))
+
+            # 发送最终结构化结果
+            yield json.dumps({
+                'type': 'result',
+                'data': {
+                    'key_events': result.get('key_events', []),
+                    'identified_problems': result.get('identified_problems', []),
+                    'category_tags': result.get('category_tags', []),
+                }
+            }) + '\n'
+        except Exception as e:
+            yield json.dumps({'type': 'error', 'message': f'结果解析失败：{str(e)}'}) + '\n'
+
+    @classmethod
     async def followup(cls, db: AsyncSession, scenario_id: int, user_message: str | None, model_id: int = 1) -> str:
-        """AI追问"""
         scenario = await ScenarioDao.get_by_id(db, scenario_id)
         if not scenario:
             raise ValueError('情境数据不存在')
@@ -175,7 +242,7 @@ class ScenarioService:
         return result
 
     @classmethod
-    async def confirm(cls, db: AsyncSession, record_id: int, student_id: int) -> dict:
+    async def confirm(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:
         """确认情境完成"""
         scenario = await ScenarioDao.get_by_record_id(db, record_id)
         if not scenario or not scenario.description:

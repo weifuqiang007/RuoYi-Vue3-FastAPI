@@ -27,7 +27,7 @@ class ScenarioFollowupModel(BaseModel):
 class ScenarioVO(BaseModel):
     scenario_id: int
     record_id: int
-    student_id: int
+    user_id: int
     description: Optional[str] = None
     key_events: Optional[list] = None
     identified_problems: Optional[list] = None

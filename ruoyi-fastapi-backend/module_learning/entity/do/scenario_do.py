@@ -13,7 +13,7 @@ class EduScenarioData(Base):
 
     scenario_id = Column(BigInteger, primary_key=True, autoincrement=True, comment='情境区数据主键ID')
     record_id = Column(BigInteger, nullable=False, comment='关联的学习记录ID，关联edu_learning_record.record_id')
-    student_id = Column(BigInteger, nullable=False, comment='学生用户ID，关联sys_user.user_id')
+    user_id = Column(BigInteger, nullable=False, comment='用户ID（支持student/teacher/admin），关联sys_user.user_id')
     # 学生输入的原始场景描述
     description = Column(Text, comment='学生撰写的实践场景描述正文，建议300-800字')
     # AI分析结果（LLM返回后存储）

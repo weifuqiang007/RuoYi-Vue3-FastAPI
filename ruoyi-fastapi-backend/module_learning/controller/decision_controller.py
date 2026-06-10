@@ -23,6 +23,7 @@ class DecisionController:
 
     @staticmethod
     @decision_controller.post('/save', summary='保存决策记录')
+    @decision_controller.put('/save', summary="更新决策记录")
     async def save_decision(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],

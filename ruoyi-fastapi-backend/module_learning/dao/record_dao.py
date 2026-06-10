@@ -23,21 +23,23 @@ class RecordDao:
         return result.scalars().first()
 
     @classmethod
-    async def get_by_task_and_student(cls, db: AsyncSession, task_id: int, student_id: int) -> EduLearningRecord | None:
+    async def get_by_task_and_user(cls, db: AsyncSession, task_id: int, user_id: int) -> EduLearningRecord | None:
+        """根据 task_id + user_id 查找唯一记录"""
         result = await db.execute(
             select(EduLearningRecord).where(
                 EduLearningRecord.task_id == task_id,
-                EduLearningRecord.student_id == student_id,
+                EduLearningRecord.user_id == user_id,
                 EduLearningRecord.del_flag == '0',
             )
         )
         return result.scalars().first()
 
     @classmethod
-    async def get_my_records(cls, db: AsyncSession, student_id: int) -> list:
+    async def get_my_records(cls, db: AsyncSession, user_id: int) -> list:
+        """获取指定用户的所有学习记录"""
         result = await db.execute(
             select(EduLearningRecord)
-            .where(EduLearningRecord.student_id == student_id, EduLearningRecord.del_flag == '0')
+            .where(EduLearningRecord.user_id == user_id, EduLearningRecord.del_flag == '0')
             .order_by(desc(EduLearningRecord.create_time))
         )
         return list(result.scalars().all())

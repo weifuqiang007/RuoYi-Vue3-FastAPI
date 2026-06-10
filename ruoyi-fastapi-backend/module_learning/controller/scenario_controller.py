@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import Body, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.aspect.db_seesion import DBSessionDependency
@@ -23,6 +24,7 @@ class ScenarioController:
 
     @staticmethod
     @scenario_controller.post('/save', summary='保存情境描述')
+    @scenario_controller.put('/save', summary='更新情境描述')
     async def save_scenario(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -45,6 +47,17 @@ class ScenarioController:
             return ResponseUtil.success(data=result)
         except Exception as e:
             return ResponseUtil.failure(msg=str(e))
+
+    @staticmethod
+    @scenario_controller.post('/analyze/stream', summary='AI分析情境(流式)')
+    async def analyze_scenario_stream(
+        request: Request,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        data: ScenarioAnalyzeModel,
+    ) -> StreamingResponse:
+        stream = ScenarioService.analyze_stream(query_db, data.scenario_id)
+        return StreamingResponse(content=stream, media_type='text/event-stream')
 
     @staticmethod
     @scenario_controller.post('/followup', summary='AI追问')

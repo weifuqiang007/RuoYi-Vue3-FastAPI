@@ -21,18 +21,21 @@ record_controller = APIRouterPro(
 class RecordController:
 
     @staticmethod
-    @record_controller.post('/start/{task_id}', summary='开始任务')
+    @record_controller.post('/start/{task_id}', summary='开始任务（所有角色可用）')
     async def start_task(
         request: Request,
         task_id: int,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     ) -> Response:
-        result = await RecordService.start_task(query_db, task_id, current_user.user.user_id)
+        result = await RecordService.start_task(
+            query_db, task_id, current_user.user.user_id,
+            roles=current_user.roles,
+        )
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @record_controller.get('/my', summary='我的学习记录')
+    @record_controller.get('/my', summary='我的学习记录（所有角色可用）')
     async def get_my_records(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -57,7 +60,7 @@ class RecordController:
         return ResponseUtil.success(data=result)
 
     @staticmethod
-    @record_controller.put('/advance/{record_id}', summary='推进到下一区')
+    @record_controller.put('/advance/{record_id}', summary='推进到下一区（所有角色可用）')
     async def advance_stage(
         request: Request,
         record_id: int,

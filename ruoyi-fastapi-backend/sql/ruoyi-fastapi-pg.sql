@@ -1459,3 +1459,69 @@ COMMENT ON COLUMN edu_learning_record.teacher_feedback IS '教师总评语';
 
 CREATE INDEX IF NOT EXISTS idx_record_student ON edu_learning_record(student_id);
 CREATE INDEX IF NOT EXISTS idx_record_task ON edu_learning_record(task_id);
+
+
+ALTER TABLE public.edu_learning_record RENAME COLUMN student_id TO user_id;
+COMMENT ON COLUMN public.edu_learning_record.user_id IS '用户ID,关联sys_user.user_id';
+
+
+-- ============================================================
+-- 阶段2补充：注册研究工作台（ZoneMain）隐藏菜单
+-- 说明：点击"开始任务"后跳转到此页面，不在侧边栏显示
+-- ============================================================
+
+-- 幂等插入：如果已存在则跳过
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon,
+                      create_by, create_time)
+SELECT 4150, '研究工作台', 4000, 5, 'zone', 'learning/zone/ZoneMain', NULL,
+       1, 0, 'C', '1', '0', 'learning:zone:main', 'edit',
+       'admin', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_id = 4150);
+
+-- 角色关联（admin=1, student=3, teacher=4）
+INSERT INTO sys_role_menu (role_id, menu_id) SELECT 1, 4150 WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE role_id=1 AND menu_id=4150);
+INSERT INTO sys_role_menu (role_id, menu_id) SELECT 3, 4150 WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE role_id=3 AND menu_id=4150);
+INSERT INTO sys_role_menu (role_id, menu_id) SELECT 4, 4150 WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE role_id=4 AND menu_id=4150);
+
+
+-- ============================================================
+-- 阶段3：情境区（Scenario Zone）数据库表
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS edu_scenario_data (
+    scenario_id      BIGSERIAL PRIMARY KEY,
+    record_id        BIGINT NOT NULL REFERENCES edu_learning_record(record_id),
+    user_id          BIGINT NOT NULL REFERENCES sys_user(user_id),
+    description      TEXT,
+    key_events       JSONB,
+    identified_problems JSONB,
+    category_tags    JSONB,
+    status           CHAR(1) DEFAULT '0',
+    del_flag         CHAR(1) DEFAULT '0',
+    create_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE edu_scenario_data IS '情境区主数据表';
+COMMENT ON COLUMN edu_scenario_data.scenario_id IS '情境区数据主键ID';
+COMMENT ON COLUMN edu_scenario_data.record_id IS '关联的学习记录ID';
+COMMENT ON COLUMN edu_scenario_data.user_id IS '用户ID（支持student/teacher/admin），关联sys_user.user_id';
+COMMENT ON COLUMN edu_scenario_data.description IS '用户撰写的实践场景描述正文';
+COMMENT ON COLUMN edu_scenario_data.key_events IS 'AI识别的关键事件节点列表(JSONB)';
+COMMENT ON COLUMN edu_scenario_data.identified_problems IS 'AI识别的专业问题列表(JSONB)';
+COMMENT ON COLUMN edu_scenario_data.category_tags IS '场景分类标签(JSONB)';
+COMMENT ON COLUMN edu_scenario_data.status IS '情境区状态（0草稿/编辑中 1已确认）';
+CREATE INDEX IF NOT EXISTS idx_scenario_record ON edu_scenario_data(record_id);
+CREATE INDEX IF NOT EXISTS idx_scenario_user ON edu_scenario_data(user_id);
+
+CREATE TABLE IF NOT EXISTS edu_scenario_dialogue (
+    dialogue_id   BIGSERIAL PRIMARY KEY,
+    scenario_id   BIGINT NOT NULL REFERENCES edu_scenario_data(scenario_id),
+    role          VARCHAR(20) NOT NULL,
+    content       TEXT NOT NULL,
+    dialogue_type VARCHAR(30),
+    create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE edu_scenario_dialogue IS '情境区AI对话记录';
+COMMENT ON COLUMN edu_scenario_dialogue.role IS '发言角色（user 用户 / assistant AI助手）';
+COMMENT ON COLUMN edu_scenario_dialogue.dialogue_type IS '对话类型（analyze首次AI分析 / followup AI追问 / user_reply用户回复）';

@@ -28,7 +28,7 @@ class MonitorService:
             stage_counts[r.current_stage] = stage_counts.get(r.current_stage, 0) + 1
             students.append({
                 'record_id': r.record_id,
-                'student_id': r.student_id,
+                'user_id': r.user_id,
                 'current_stage': r.current_stage,
                 'scenario_status': r.scenario_status,
                 'decision_status': r.decision_status,
@@ -55,7 +55,7 @@ class MonitorService:
         result = {
             'record_id': record.record_id,
             'task_id': record.task_id,
-            'student_id': record.student_id,
+            'user_id': record.user_id,
             'current_stage': record.current_stage,
             'status': record.status,
             'score': float(record.score) if record.score else None,

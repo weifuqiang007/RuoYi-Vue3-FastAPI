@@ -22,7 +22,7 @@ class RecordAdvanceModel(BaseModel):
 class RecordVO(BaseModel):
     record_id: int
     task_id: Optional[int] = None
-    student_id: int
+    user_id: int
     current_stage: Optional[str] = None
     scenario_status: Optional[str] = None
     decision_status: Optional[str] = None

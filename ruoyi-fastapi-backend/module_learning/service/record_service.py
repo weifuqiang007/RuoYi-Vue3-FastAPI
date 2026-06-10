@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_learning.dao.record_dao import RecordDao
 from module_learning.entity.do.record_do import EduLearningRecord
-
+from utils.page_util import PageUtil
 
 # 状态流转映射
 STAGE_FLOW = {
@@ -25,47 +25,46 @@ STAGE_STATUS_FIELD = {
 class RecordService:
 
     @classmethod
-    async def start_task(cls, db: AsyncSession, task_id: int, student_id: int) -> dict:
-        """学生开始任务，创建学习记录"""
-        # 检查是否已有记录
-
-        # 这也是需要区分学生还是老师。学生可以继续走当前的业务，老师需要
-        existing = await RecordDao.get_by_task_and_student(db, task_id, student_id)
+    async def start_task(cls, db: AsyncSession, task_id: int, user_id: int,
+                         roles: list | None = None) -> dict:
+        """用户开始任务，创建学习记录（支持 student/teacher/admin 所有角色）"""
+        # 检查是否已有记录（UNIQUE(task_id, user_id) 保证幂等）
+        existing = await RecordDao.get_by_task_and_user(db, task_id, user_id)
         if existing:
             return {'record_id': existing.record_id, 'current_stage': existing.current_stage}
         record = EduLearningRecord(
             task_id=task_id,
-            student_id=student_id,
-            create_by=str(student_id),
+            user_id=user_id,
+            create_by=str(user_id),
         )
         record = await RecordDao.create(db, record)
         return {'record_id': record.record_id, 'current_stage': record.current_stage}
 
     @classmethod
-    async def get_my_records(cls, db: AsyncSession, student_id: int, page_num: int = 1, page_size: int = 10) -> dict:
+    async def get_my_records(cls, db: AsyncSession, user_id: int, page_num: int = 1, page_size: int = 10) -> dict:
         """我的学习记录列表（分页）"""
-        from utils.page_util import PageUtil
-        records = await RecordDao.get_my_records(db, student_id)
+
+        records = await RecordDao.get_my_records(db, user_id)
         rows = [cls._record_to_dict(r) for r in records]
         return PageUtil.get_page_obj(rows, page_num, page_size).model_dump()
 
     @classmethod
-    async def get_detail(cls, db: AsyncSession, record_id: int, student_id: int | None = None) -> dict | None:
+    async def get_detail(cls, db: AsyncSession, record_id: int, user_id: int | None = None) -> dict | None:
         """记录详情"""
         record = await RecordDao.get_by_id(db, record_id)
         if not record:
             return None
-        if student_id and record.student_id != student_id:
+        if user_id and record.user_id != user_id:
             return None
         return cls._record_to_dict(record)
 
     @classmethod
-    async def advance_stage(cls, db: AsyncSession, record_id: int, student_id: int) -> dict:
+    async def advance_stage(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:
         """推进到下一区"""
         record = await RecordDao.get_by_id(db, record_id)
         if not record:
             raise ValueError('学习记录不存在')
-        if record.student_id != student_id:
+        if record.user_id != user_id:
             raise PermissionError('无权操作他人记录')
 
         current_stage = record.current_stage
@@ -116,7 +115,7 @@ class RecordService:
         return {
             'record_id': record.record_id,
             'task_id': record.task_id,
-            'student_id': record.student_id,
+            'user_id': record.user_id,
             'current_stage': record.current_stage,
             'scenario_status': record.scenario_status,
             'decision_status': record.decision_status,

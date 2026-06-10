@@ -23,6 +23,20 @@
           </template>
         </ScenarioEditor>
 
+        <!-- 流式分析过程展示区 -->
+        <el-card v-if="analyzeStatus || analyzeStreamText" shadow="never" class="stream-card">
+          <template #header>
+            <div class="stream-header">
+              <span>{{ analyzeStatus || '分析完成' }}</span>
+              <el-icon v-if="analyzing" class="is-loading"><Loading /></el-icon>
+            </div>
+          </template>
+          <div v-if="analyzeStreamText" class="stream-content">
+            <pre class="stream-text">{{ analyzeStreamText }}</pre>
+          </div>
+          <div v-else class="stream-empty">等待 AI 输出...</div>
+        </el-card>
+
         <div class="mb8" />
 
         <KeyEventTimeline :events="keyEvents" />
@@ -48,7 +62,9 @@
 <script setup name="LearningScenario">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { analyzeScenario, confirmScenario, getScenarioDetail, saveScenario } from '@/api/learning/scenario'
+import { Loading } from '@element-plus/icons-vue'
+import { confirmScenario, getScenarioDetail, saveScenario } from '@/api/learning/scenario'
+import { analyzeScenarioStream } from '@/api/learning/scenario'
 import ScenarioEditor from './components/ScenarioEditor.vue'
 import KeyEventTimeline from './components/KeyEventTimeline.vue'
 import ProblemCard from './components/ProblemCard.vue'
@@ -69,6 +85,11 @@ const categoryTags = ref([])
 const saving = ref(false)
 const analyzing = ref(false)
 const confirming = ref(false)
+
+// 流式分析状态
+const analyzeStatus = ref('')
+const analyzeStreamText = ref('')
+let abortController = null
 
 const presetScenario = computed(() => props.record?.preset_scenario ?? props.record?.presetScenario ?? '')
 
@@ -101,22 +122,47 @@ async function save() {
 
 async function analyze() {
   analyzing.value = true
+  analyzeStatus.value = '准备分析...'
+  analyzeStreamText.value = ''
+  abortController = new AbortController()
+
   try {
     if (!scenarioId.value) {
       await save()
     }
-    const res = await analyzeScenario({
-      record_id: props.recordId,
-      scenario_id: scenarioId.value
-    })
-    const data = res.data || {}
-    keyEvents.value = data.key_events ?? data.keyEvents ?? keyEvents.value
-    identifiedProblems.value = data.identified_problems ?? data.identifiedProblems ?? identifiedProblems.value
-    categoryTags.value = data.category_tags ?? data.categoryTags ?? categoryTags.value
-    ElMessage.success('分析完成')
-    emit('stage-updated')
+
+    await analyzeScenarioStream(
+      { scenario_id: scenarioId.value },
+      {
+        onStatus(msg) {
+          analyzeStatus.value = msg
+        },
+        onContent(text) {
+          analyzeStreamText.value += text
+        },
+        onResult(data) {
+          keyEvents.value = data.key_events ?? data.keyEvents ?? keyEvents.value
+          identifiedProblems.value = data.identified_problems ?? data.identifiedProblems ?? identifiedProblems.value
+          categoryTags.value = data.category_tags ?? data.categoryTags ?? categoryTags.value
+          analyzeStatus.value = '分析完成'
+          ElMessage.success('AI 分析完成')
+          emit('stage-updated')
+        },
+        onError(msg) {
+          ElMessage.error('分析失败：' + msg)
+          analyzeStatus.value = '分析失败'
+        }
+      },
+      abortController.signal
+    )
+  } catch (err) {
+    if (err?.name !== 'AbortError') {
+      ElMessage.error('请求失败：' + (err?.message || '未知错误'))
+      analyzeStatus.value = '请求失败'
+    }
   } finally {
     analyzing.value = false
+    abortController = null
   }
 }
 
@@ -164,5 +210,31 @@ onMounted(() => {
 .tag-item {
   margin: 0;
 }
+.stream-card {
+  margin-top: 12px;
+}
+.stream-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #409eff;
+}
+.stream-content {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.stream-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  color: #303133;
+}
+.stream-empty {
+  color: #909399;
+  text-align: center;
+  padding: 12px 0;
+}
 </style>
-

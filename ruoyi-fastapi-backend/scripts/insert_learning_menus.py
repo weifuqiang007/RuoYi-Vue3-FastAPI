@@ -78,19 +78,29 @@ async def insert_menus():
         """)
 
         # ============================================================
-        # 4. 角色菜单关联
+        # 4. 隐藏菜单：研究工作台（ZoneMain 四区学习页面）
+        # ============================================================
+        await conn.execute("""
+            INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, route_name,
+                                  is_frame, is_cache, menu_type, visible, status, perms, icon,
+                                  create_by, create_time)
+            VALUES (4150, '研究工作台', 4000, 5, 'zone', 'learning/zone/ZoneMain', NULL, 1, 0, 'C', '1', '0', 'learning:zone:main', 'edit', 'admin', NOW())
+        """)
+
+        # ============================================================
+        # 5. 角色菜单关联
         # ============================================================
 
         # 管理员(role_id=1): 所有菜单
-        for mid in [4000, 4100, 4101, 4200, 4201, 4202, 4203]:
+        for mid in [4000, 4100, 4101, 4150, 4200, 4201, 4202, 4203]:
             await conn.execute("INSERT INTO sys_role_menu (role_id, menu_id) VALUES (1, $1)", mid)
 
-        # 学生(role_id=3): 顶层目录 + 学生菜单
-        for mid in [4000, 4100, 4101]:
+        # 学生(role_id=3): 顶层目录 + 学生菜单 + 研究工作台
+        for mid in [4000, 4100, 4101, 4150]:
             await conn.execute("INSERT INTO sys_role_menu (role_id, menu_id) VALUES (3, $1)", mid)
 
-        # 教师(role_id=4): 顶层目录 + 教师菜单
-        for mid in [4000, 4200, 4201, 4202, 4203]:
+        # 教师(role_id=4): 顶层目录 + 教师菜单 + 研究工作台
+        for mid in [4000, 4150, 4200, 4201, 4202, 4203]:
             await conn.execute("INSERT INTO sys_role_menu (role_id, menu_id) VALUES (4, $1)", mid)
 
         # 验证

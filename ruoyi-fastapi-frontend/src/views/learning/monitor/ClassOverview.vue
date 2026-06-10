@@ -39,7 +39,7 @@
 
     <!-- 学生列表 -->
     <el-table v-loading="loading" :data="studentList">
-      <el-table-column label="学生ID" prop="student_id" width="90" />
+      <el-table-column label="用户ID" prop="user_id" width="90" />
       <el-table-column label="当前阶段" width="110" align="center">
         <template #default="scope">
           <el-tag :type="stageTagType(scope.row.current_stage)">{{ stageLabel(scope.row.current_stage) }}</el-tag>
