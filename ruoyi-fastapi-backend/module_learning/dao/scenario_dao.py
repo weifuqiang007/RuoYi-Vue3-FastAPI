@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from module_learning.entity.do.scenario_do import EduScenarioData, EduScenarioDialogue
 
 
+# todo 测试推送功能
 class ScenarioDao:
 
     @classmethod
