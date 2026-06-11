@@ -2,7 +2,10 @@
   <el-card shadow="never">
     <template #header>
       <div class="header">
-        <span>场景描述</span>
+        <div class="module-title">
+          <span class="bar" />
+          <span class="text">场景描述</span>
+        </div>
         <div class="actions">
           <slot name="actions" />
         </div>
@@ -46,9 +49,21 @@ function emitBlur() {
   justify-content: space-between;
   align-items: center;
 }
+.module-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.bar {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: #3b82f6;
+}
 .actions {
   display: flex;
   gap: 10px;
 }
 </style>
-

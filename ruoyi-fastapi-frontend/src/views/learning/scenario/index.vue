@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="scenario-page">
     <el-alert
       v-if="presetScenario"
       title="教师预设情境（可在此基础上补充）"
@@ -48,7 +48,12 @@
         <AiFollowupPanel :scenario-id="scenarioId" />
         <div class="mb8" />
         <el-card shadow="never">
-          <template #header>分类标签</template>
+          <template #header>
+            <div class="module-title">
+              <span class="bar" />
+              <span class="text">分类标签</span>
+            </div>
+          </template>
           <div v-if="categoryTags.length === 0" class="empty">暂无</div>
           <div v-else class="tag-wrap">
             <el-tag v-for="(t, idx) in categoryTags" :key="idx" class="tag-item">{{ formatTag(t) }}</el-tag>
@@ -186,9 +191,24 @@ function handleBlurSave() {
 }
 
 function formatTag(t) {
-  if (typeof t === 'string') return t
-  if (t?.label) return t.label
-  return JSON.stringify(t)
+  const obj = normalizeMaybeJson(t)
+  if (typeof obj === 'string') return obj
+  return obj?.label ?? obj?.name ?? (obj ? JSON.stringify(obj) : '')
+}
+
+function normalizeMaybeJson(v) {
+  if (!v) return ''
+  if (typeof v !== 'string') return v
+  const s = v.trim()
+  if (!s) return ''
+  if (s.startsWith('{') && s.endsWith('}')) {
+    try {
+      return JSON.parse(s)
+    } catch {
+      return s
+    }
+  }
+  return s
 }
 
 onMounted(() => {
@@ -197,6 +217,22 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.scenario-page {
+  background: #f9fafb;
+}
+.module-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.bar {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: #3b82f6;
+}
 .empty {
   color: #909399;
   padding: 14px 0;
