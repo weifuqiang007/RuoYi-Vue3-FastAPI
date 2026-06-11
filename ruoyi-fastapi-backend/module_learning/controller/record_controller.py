@@ -1,12 +1,13 @@
 from typing import Annotated
 
-from fastapi import Request, Response
+from fastapi import Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.router import APIRouterPro
 from module_admin.entity.vo.user_vo import CurrentUserModel
+from module_learning.entity.vo.record_vo import RecordListQueryModel
 from module_learning.service.record_service import RecordService
 from utils.response_util import ResponseUtil
 
@@ -40,10 +41,16 @@ class RecordController:
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-        page_num: int = 1,
-        page_size: int = 10,
+        query: Annotated[RecordListQueryModel, Query()],
     ) -> Response:
-        result = await RecordService.get_my_records(query_db, current_user.user.user_id, page_num, page_size)
+        page_num = query.page_num
+        page_size = query.page_size
+        filters = query.model_dump(exclude_none=True, exclude={'page_num', 'page_size'})
+        result = await RecordService.get_my_records(
+            query_db, current_user.user.user_id,
+            filters=filters or None,
+            page_num=page_num, page_size=page_size,
+        )
         return ResponseUtil.success(data=result)
 
     @staticmethod

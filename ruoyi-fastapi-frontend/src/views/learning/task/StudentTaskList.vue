@@ -8,6 +8,79 @@
       class="mb8"
     />
 
+    <el-form ref="queryRef" :model="queryParams" :inline="true" class="mb8">
+      <el-form-item label="任务类型">
+        <el-select v-model="queryParams.creator_type" placeholder="全部" clearable style="width: 160px">
+          <el-option label="教学任务" value="0" />
+          <el-option label="自研课题" value="1" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="任务名称">
+        <el-input
+          v-model="queryParams.task_name"
+          placeholder="请输入任务名称"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="归属班级">
+        <el-select v-model="queryParams.dept_id" placeholder="请选择班级" clearable filterable style="width: 220px">
+          <el-option v-for="d in deptOptions" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="发布教师">
+        <el-input
+          v-model="queryParams.teacher_name"
+          placeholder="请输入教师姓名"
+          clearable
+          style="width: 200px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="任务简述">
+        <el-input
+          v-model="queryParams.task_description"
+          placeholder="请输入任务简述"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="截止时间">
+        <el-date-picker
+          v-model="deadlineRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          range-separator="-"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 260px"
+        />
+      </el-form-item>
+      <el-form-item label="创建时间">
+        <el-date-picker
+          v-model="createTimeRange"
+          type="daterange"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          range-separator="-"
+          start-placeholder="开始时间"
+          end-placeholder="结束时间"
+          style="width: 340px"
+        />
+      </el-form-item>
+      <el-form-item label="发布状态">
+        <el-select v-model="queryParams.status" placeholder="全部" clearable style="width: 160px">
+          <el-option label="草稿" value="0" />
+          <el-option label="已发布" value="1" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
+        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+      </el-form-item>
+    </el-form>
+
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
         <el-button type="primary" plain icon="Plus" @click="openSelfDialog">新增自研课题</el-button>
@@ -25,6 +98,20 @@
         </template>
       </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="200" show-overflow-tooltip />
+      <el-table-column label="归属班级" min-width="220">
+        <template #default="scope">
+          <span
+            v-if="scope.row.assigned_classes && scope.row.assigned_classes.length > 0"
+            class="class-cell"
+            @click="openAssignedClassDialog(scope.row)"
+          >
+            <span class="class-ellipsis">
+              {{ formatAssignedClasses(scope.row.assigned_classes) }}
+            </span>
+          </span>
+          <span v-else style="color: #909399;">-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="发布教师" width="110" align="center">
         <template #default="scope">
           <span v-if="String(scope.row.creator_type) === '0'">{{ scope.row.teacher_name || '-' }}</span>
@@ -35,7 +122,9 @@
       <el-table-column label="截止时间" prop="deadline" width="170" />
       <el-table-column label="状态" width="90" align="center">
         <template #default="scope">
-          <el-tag type="success">已发布</el-tag>
+          <el-tag :type="statusTagType(scope.row.status)">
+            {{ statusLabel(scope.row.status) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200" align="center">
@@ -49,8 +138,8 @@
     <pagination
       v-show="total > 0"
       :total="total"
-      v-model:page="queryParams.pageNum"
-      v-model:limit="queryParams.pageSize"
+      v-model:page="queryParams.page_num"
+      v-model:limit="queryParams.page_size"
       @pagination="getList"
     />
 
@@ -82,6 +171,20 @@
         <el-descriptions-item label="截止时间">{{ detail.deadline }}</el-descriptions-item>
       </el-descriptions>
     </el-drawer>
+
+    <el-dialog title="归属班级" v-model="assignedClassVisible" width="520px">
+      <div v-if="assignedClassList.length === 0" style="color: #909399; text-align: center; padding: 10px 0;">
+        暂无
+      </div>
+      <div v-else>
+        <el-tag v-for="c in assignedClassList" :key="c.dept_id ?? c.deptId" class="mr4" style="margin-bottom: 6px;">
+          {{ c.dept_name ?? c.deptName }}
+        </el-tag>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="assignedClassVisible = false">关 闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -89,15 +192,26 @@
 import { ElMessage } from 'element-plus'
 import { listStudentTask, getTaskDetail, createStudentTask } from '@/api/learning/task'
 import { startRecord } from '@/api/learning/record'
+import { listDept } from '@/api/system/dept'
 
 const router = useRouter()
 
 const loading = ref(false)
 const taskList = ref([])
 const total = ref(0)
-const queryParams = ref({
-  pageNum: 1,
-  pageSize: 10
+const queryRef = ref()
+const deptOptions = ref([])
+const deadlineRange = ref([])
+const createTimeRange = ref([])
+const queryParams = reactive({
+  page_num: 1,
+  page_size: 10,
+  creator_type: undefined,
+  task_name: undefined,
+  dept_id: undefined,
+  teacher_name: undefined,
+  task_description: undefined,
+  status: undefined
 })
 
 const selfDialogVisible = ref(false)
@@ -108,6 +222,9 @@ const creating = ref(false)
 const detailVisible = ref(false)
 const detail = ref({})
 
+const assignedClassVisible = ref(false)
+const assignedClassList = ref([])
+
 function normalizeTaskRow(row) {
   const creatorType = row.creator_type ?? row.creatorType
   return {
@@ -116,18 +233,70 @@ function normalizeTaskRow(row) {
     task_description: row.task_description ?? row.taskDescription,
     preset_scenario: row.preset_scenario ?? row.presetScenario,
     deadline: row.deadline,
+    status: row.status,
     creator_type: creatorType ?? (row.source === 'self_study' ? '1' : '0'),
     student_id: row.student_id ?? row.studentId,
     student_name: row.student_name ?? row.studentName,
     teacher_id: row.teacher_id ?? row.teacherId,
     teacher_name: row.teacher_name ?? row.teacherName,
+    assigned_classes: row.assigned_classes ?? row.assignedClasses ?? [],
     source: row.source
   }
 }
 
+function statusLabel(v) {
+  const key = String(v ?? '')
+  return { '0': '草稿', '1': '已发布', '2': '已关闭' }[key] || '未知'
+}
+
+function statusTagType(v) {
+  const key = String(v ?? '')
+  return { '0': 'info', '1': 'success', '2': 'warning' }[key] || 'info'
+}
+
+function formatAssignedClasses(list) {
+  if (!Array.isArray(list) || list.length === 0) return ''
+  return list.map(c => c.dept_name ?? c.deptName ?? '').filter(Boolean).join('、')
+}
+
+function openAssignedClassDialog(row) {
+  assignedClassList.value = Array.isArray(row?.assigned_classes) ? row.assigned_classes : []
+  assignedClassVisible.value = true
+}
+
+async function loadDeptOptions() {
+  const res = await listDept()
+  const data = res?.data
+  deptOptions.value = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+}
+
+function buildQueryParams() {
+  const params = {
+    page_num: queryParams.page_num,
+    page_size: queryParams.page_size
+  }
+  if (queryParams.creator_type) params.creator_type = queryParams.creator_type
+  if (queryParams.task_name) params.task_name = queryParams.task_name
+  if (queryParams.dept_id !== undefined && queryParams.dept_id !== null && queryParams.dept_id !== '') {
+    params.dept_id = queryParams.dept_id
+  }
+  if (queryParams.teacher_name) params.teacher_name = queryParams.teacher_name
+  if (queryParams.task_description) params.task_description = queryParams.task_description
+  if (queryParams.status) params.status = queryParams.status
+  if (Array.isArray(deadlineRange.value) && deadlineRange.value.length === 2) {
+    params.deadline_begin = deadlineRange.value[0]
+    params.deadline_end = deadlineRange.value[1]
+  }
+  if (Array.isArray(createTimeRange.value) && createTimeRange.value.length === 2) {
+    params.create_time_begin = createTimeRange.value[0]
+    params.create_time_end = createTimeRange.value[1]
+  }
+  return params
+}
+
 function getList() {
   loading.value = true
-  listStudentTask(queryParams.value)
+  listStudentTask(buildQueryParams())
     .then(res => {
       const data = res?.data ?? {}
       const rows = Array.isArray(data.rows) ? data.rows : Array.isArray(res?.rows) ? res.rows : []
@@ -137,6 +306,20 @@ function getList() {
     .finally(() => {
       loading.value = false
     })
+}
+
+function handleQuery() {
+  queryParams.page_num = 1
+  getList()
+}
+
+function resetQuery() {
+  deadlineRange.value = []
+  createTimeRange.value = []
+  queryRef.value?.resetFields?.()
+  queryParams.page_num = 1
+  queryParams.page_size = 10
+  getList()
 }
 
 async function handleStart(row) {
@@ -186,6 +369,25 @@ async function openDetail(row) {
 }
 
 onMounted(() => {
+  loadDeptOptions()
   getList()
 })
 </script>
+
+<style scoped>
+.mr4 { margin-right: 4px; }
+.class-cell {
+  display: inline-block;
+  max-width: 100%;
+  cursor: pointer;
+  color: var(--el-color-primary);
+}
+.class-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+</style>

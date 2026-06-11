@@ -4,7 +4,7 @@
 
     <el-row :gutter="16">
       <el-col :span="14">
-        <ReflectionEditor v-model="content" @blur="handleBlurSave">
+        <ReflectionEditor v-model="content">
           <template #actions>
             <el-button :loading="saving" @click="save">保存</el-button>
             <el-button type="success" :loading="confirming" @click="confirm">确认并进入研究区</el-button>
@@ -33,7 +33,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { confirmReflection, getReflectionDepthHistory, getReflectionDetail, saveReflection } from '@/api/learning/reflection'
-import { useAutoSave } from '@/views/learning/components/AutoSaveMixin'
+import { advanceRecordStage, getRecordDetail } from '@/api/learning/record'
 import DepthIndicator from './components/DepthIndicator.vue'
 import ReflectionEditor from './components/ReflectionEditor.vue'
 import AiQuestionPanel from './components/AiQuestionPanel.vue'
@@ -45,6 +45,9 @@ const props = defineProps({
   record: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits(['stage-updated'])
+
+const route = useRoute()
+const router = useRouter()
 
 const reflectionId = ref(null)
 const content = ref('')
@@ -88,9 +91,17 @@ async function loadDepthHistory() {
 }
 
 async function save() {
+  const ok = await persistReflection(true)
+  if (ok) {
+    ElMessage.success('保存成功')
+    emit('stage-updated')
+  }
+}
+
+async function persistReflection(showMessage) {
   if (!content.value.trim()) {
-    ElMessage.warning('请先填写反思内容')
-    return
+    if (showMessage) ElMessage.warning('请先填写反思内容')
+    return false
   }
   saving.value = true
   try {
@@ -104,9 +115,8 @@ async function save() {
     if (data.depth_score !== undefined) depthScore.value = Number(data.depth_score)
     if (data.depth_level) depthLevel.value = data.depth_level
     if (data.linked_theories || data.theories) theories.value = normalizeArray(data.linked_theories ?? data.theories)
-    ElMessage.success('保存成功')
-    emit('stage-updated')
     await loadDepthHistory()
+    return true
   } finally {
     saving.value = false
   }
@@ -121,37 +131,24 @@ function handleDepthUpdate(payload) {
 async function confirm() {
   confirming.value = true
   try {
+    const ok = await persistReflection(false)
+    if (!ok) return
     await confirmReflection({ record_id: props.recordId, reflection_id: reflectionId.value })
-    ElMessage.success('已确认')
+    await advanceRecordStage(props.recordId)
+    const res = await getRecordDetail(props.recordId)
+    const data = res.data || {}
+    const nextStage = data.current_stage ?? data.currentStage
+    if (nextStage) {
+      router.replace({ query: { ...route.query, stage: String(nextStage) } })
+    }
+    ElMessage.success('已保存并推进')
     emit('stage-updated')
   } finally {
     confirming.value = false
   }
 }
 
-function handleBlurSave() {
-  autoSave.scheduleDebouncedSave('blur')
-}
-
-const autoSave = useAutoSave({
-  saveFn: () => save(),
-  debounceMs: 800,
-  intervalMs: 30000
-})
-
-watch(
-  () => content.value,
-  () => {
-    autoSave.scheduleDebouncedSave('input')
-  }
-)
-
 onMounted(() => {
   loadDetail()
-  autoSave.startInterval()
-})
-
-onBeforeUnmount(() => {
-  autoSave.dispose()
 })
 </script>

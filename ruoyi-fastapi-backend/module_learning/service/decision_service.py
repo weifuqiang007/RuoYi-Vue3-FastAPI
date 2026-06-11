@@ -152,6 +152,8 @@ class DecisionService:
                 'actual_outcome': d.actual_outcome,
                 'ethics_analysis': d.ethics_analysis,
                 'status': d.status,
+                'update_time': str(d.update_time) if d.update_time else None,
+                'create_time': str(d.create_time) if d.create_time else None,
                 'dialogues': [
                     {'role': dd.role, 'content': dd.content, 'dialogue_type': dd.dialogue_type}
                     for dd in dialogues

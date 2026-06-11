@@ -23,6 +23,7 @@ class ReflectionController:
 
     @staticmethod
     @reflection_controller.post('/save', summary='保存反思文本')
+    @reflection_controller.put('/save', summary="更新反思文本")
     async def save_reflection(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],

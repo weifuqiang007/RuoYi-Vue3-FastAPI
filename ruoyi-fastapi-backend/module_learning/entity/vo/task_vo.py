@@ -67,3 +67,19 @@ class StudentTaskCreateModel(BaseModel):
     """学生自建自研课题请求"""
     task_name: str = Field(..., max_length=200, description='课题名称')
     task_description: Optional[str] = Field(None, description='课题描述')
+
+
+class TaskListQueryModel(BaseModel):
+    """任务列表查询条件"""
+    creator_type: Optional[str] = Field(None, description="任务类型：'0'教学任务 / '1'自研课题")
+    task_name: Optional[str] = Field(None, description='任务名称（模糊匹配）')
+    dept_id: Optional[int] = Field(None, description='归属班级ID')
+    teacher_name: Optional[str] = Field(None, description='发布教师姓名（模糊匹配）')
+    task_description: Optional[str] = Field(None, description='任务简述（模糊匹配）')
+    deadline_begin: Optional[str] = Field(None, description='截止时间起始')
+    deadline_end: Optional[str] = Field(None, description='截止时间结束')
+    create_time_begin: Optional[str] = Field(None, description='创建时间起始')
+    create_time_end: Optional[str] = Field(None, description='创建时间结束')
+    status: Optional[str] = Field(None, description='发布状态')
+    page_num: int = Field(default=1, description='当前页码')
+    page_size: int = Field(default=10, description='每页记录数')

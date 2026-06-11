@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_learning.dao.record_dao import RecordDao
 from module_learning.entity.do.record_do import EduLearningRecord
+from module_learning.entity.do.task_do import EduTask
 from utils.page_util import PageUtil
 
 # 状态流转映射
@@ -41,11 +42,22 @@ class RecordService:
         return {'record_id': record.record_id, 'current_stage': record.current_stage}
 
     @classmethod
-    async def get_my_records(cls, db: AsyncSession, user_id: int, page_num: int = 1, page_size: int = 10) -> dict:
-        """我的学习记录列表（分页）"""
-
-        records = await RecordDao.get_my_records(db, user_id)
-        rows = [cls._record_to_dict(r) for r in records]
+    async def get_my_records(cls, db: AsyncSession, user_id: int,
+                             filters: dict | None = None,
+                             page_num: int = 1, page_size: int = 10) -> dict:
+        """
+        我的学习记录列表（分页）。
+        DAO 返回 [(EduLearningRecord, EduTask, teacher_nick_name, student_nick_name), ...]
+        根据 task.creator_type 决定 creator_name 取 teacher_name 还是 student_name。
+        """
+        rows_data = await RecordDao.get_my_records(db, user_id, filters)
+        rows = [
+            cls._record_to_dict(
+                row[0], task=row[1],
+                teacher_name=row[2], student_name=row[3],
+            )
+            for row in rows_data
+        ]
         return PageUtil.get_page_obj(rows, page_num, page_size).model_dump()
 
     @classmethod
@@ -111,10 +123,28 @@ class RecordService:
                 raise ValueError('研究区尚未保存数据，无法提交')
 
     @classmethod
-    def _record_to_dict(cls, record: EduLearningRecord) -> dict:
+    def _record_to_dict(cls, record: EduLearningRecord,
+                        task: EduTask | None = None,
+                        teacher_name: str | None = None,
+                        student_name: str | None = None) -> dict:
+        """
+        将学习记录转为前端可读的字典。
+        - task: 关联的任务对象（来自JOIN查询），列表查询时传入，详情查询时不传
+        - teacher_name: 任务创建者（教师）昵称，由DAO的JOIN查询传入
+        - student_name: 任务创建者（学生）昵称，由DAO的JOIN查询传入
+        """
+        # 根据 creator_type 确定创建者姓名
+        creator_name = None
+        if task:
+            creator_name = teacher_name if task.creator_type == '0' else student_name
+
         return {
             'record_id': record.record_id,
             'task_id': record.task_id,
+            'task_name': task.task_name if task else None,
+            'creator_type': task.creator_type if task else None,
+            'creator_name': creator_name,
+            'deadline': str(task.deadline) if task and task.deadline else None,
             'user_id': record.user_id,
             'current_stage': record.current_stage,
             'scenario_status': record.scenario_status,

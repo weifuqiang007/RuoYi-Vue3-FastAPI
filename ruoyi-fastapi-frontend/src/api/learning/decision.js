@@ -31,10 +31,16 @@ export function listDecision(recordId) {
   })
 }
 
+export function deleteDecision(decisionId) {
+  return request({
+    url: `/learning/decision/${decisionId}`,
+    method: 'delete'
+  })
+}
+
 export function confirmDecision(recordId) {
   return request({
     url: `/learning/decision/confirm/${recordId}`,
     method: 'put'
   })
 }
-

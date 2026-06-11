@@ -43,6 +43,21 @@
         </template>
       </el-table-column>
       <el-table-column label="任务名称" prop="task_name" min-width="180" show-overflow-tooltip />
+      <el-table-column label="归属班级" min-width="200">
+        <template #default="scope">
+          <span v-if="String(scope.row.creator_type) === '1'" style="color: #909399;">-</span>
+          <span
+            v-else-if="scope.row.assigned_classes && scope.row.assigned_classes.length > 0"
+            class="class-cell"
+            @click="openAssignedClassDialog(scope.row)"
+          >
+            <span class="class-ellipsis">
+              {{ formatAssignedClasses(scope.row.assigned_classes) }}
+            </span>
+          </span>
+          <span v-else style="color: #909399;">-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="创建者" width="110" align="center">
         <template #default="scope">
           <span v-if="String(scope.row.creator_type) === '1'">{{ scope.row.student_name || '-' }}</span>
@@ -122,6 +137,20 @@
 
     <TaskFormDialog v-model="dialogVisible" :data="editingRow" @success="handleDialogSuccess" />
 
+    <el-dialog title="归属班级" v-model="assignedClassVisible" width="520px">
+      <div v-if="assignedClassList.length === 0" style="color: #909399; text-align: center; padding: 10px 0;">
+        暂无
+      </div>
+      <div v-else>
+        <el-tag v-for="c in assignedClassList" :key="c.dept_id ?? c.deptId" class="mr4" style="margin-bottom: 6px;">
+          {{ c.dept_name ?? c.deptName }}
+        </el-tag>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="assignedClassVisible = false">关 闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog title="发布到班级" v-model="publishVisible" width="520px">
       <el-form label-width="90px">
         <el-form-item label="选择班级" required>
@@ -187,6 +216,9 @@ const publishTaskId = ref(null)
 const detailVisible = ref(false)
 const detail = ref({})
 
+const assignedClassVisible = ref(false)
+const assignedClassList = ref([])
+
 function normalizeTaskRow(row) {
   return {
     task_id: row.task_id ?? row.taskId,
@@ -205,7 +237,7 @@ function normalizeTaskRow(row) {
     student_name: row.student_name ?? row.studentName,
     teacher_id: row.teacher_id ?? row.teacherId,
     teacher_name: row.teacher_name ?? row.teacherName,
-    assigned_classes: row.assigned_classes ?? []
+    assigned_classes: row.assigned_classes ?? row.assignedClasses ?? []
   }
 }
 
@@ -331,6 +363,16 @@ function formatKbIds(v) {
   return String(v)
 }
 
+function formatAssignedClasses(list) {
+  if (!Array.isArray(list) || list.length === 0) return ''
+  return list.map(c => c.dept_name ?? c.deptName ?? '').filter(Boolean).join('、')
+}
+
+function openAssignedClassDialog(row) {
+  assignedClassList.value = Array.isArray(row?.assigned_classes) ? row.assigned_classes : []
+  assignedClassVisible.value = true
+}
+
 onMounted(() => {
   getList()
 })
@@ -338,4 +380,18 @@ onMounted(() => {
 
 <style scoped>
 .mr4 { margin-right: 4px; }
+.class-cell {
+  display: inline-block;
+  max-width: 100%;
+  cursor: pointer;
+  color: var(--el-color-primary);
+}
+.class-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 </style>

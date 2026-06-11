@@ -21,10 +21,11 @@ class DecisionDao:
 
     @classmethod
     async def get_by_record_id(cls, db: AsyncSession, record_id: int) -> list:
+        """获取指定学习记录下的决策记录列表，按创建时间降序（最新的在前）"""
         result = await db.execute(
             select(EduDecisionData)
-            .where(EduDecisionData.record_id == record_id)
-            .order_by(EduDecisionData.key_event_index)
+            .where(EduDecisionData.record_id == record_id, EduDecisionData.del_flag == '0')
+            .order_by(desc(EduDecisionData.create_time))
         )
         return list(result.scalars().all())
 

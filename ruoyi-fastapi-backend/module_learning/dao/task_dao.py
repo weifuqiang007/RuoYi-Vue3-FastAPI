@@ -1,4 +1,4 @@
-from sqlalchemy import delete, desc, or_, select
+from sqlalchemy import delete, desc, or_, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -145,15 +145,52 @@ class TaskDao:
         return [{'dept_id': r[0], 'dept_name': r[1]} for r in result.all()]
 
     @classmethod
-    async def get_all_tasks_for_admin(cls, db: AsyncSession) -> list:
-        """管理员视角：获取所有任务（含教师任务和学生自研课题），附带创建者姓名"""
+    async def get_all_tasks_for_admin(cls, db: AsyncSession, filters: dict | None = None) -> list:
+        """管理员视角：获取所有任务（含教师任务和学生自研课题），附带创建者姓名，支持动态过滤"""
         TeacherUser = aliased(SysUser)
         StudentUser = aliased(SysUser)
+
+        conditions = [EduTask.del_flag == '0']
+        f = filters or {}
+
+        # 任务类型
+        if f.get('creator_type'):
+            conditions.append(EduTask.creator_type == f['creator_type'])
+        # 任务名称模糊匹配
+        if f.get('task_name'):
+            conditions.append(EduTask.task_name.ilike(f"%{f['task_name']}%"))
+        # 任务简述模糊匹配
+        if f.get('task_description'):
+            conditions.append(EduTask.task_description.ilike(f"%{f['task_description']}%"))
+        # 发布状态
+        if f.get('status'):
+            conditions.append(EduTask.status == f['status'])
+        # 教师姓名模糊匹配（JOIN TeacherUser 后过滤）
+        if f.get('teacher_name'):
+            conditions.append(TeacherUser.nick_name.ilike(f"%{f['teacher_name']}%"))
+        # 截止时间范围
+        if f.get('deadline_begin'):
+            conditions.append(EduTask.deadline >= f['deadline_begin'])
+        if f.get('deadline_end'):
+            conditions.append(EduTask.deadline <= f['deadline_end'])
+        # 创建时间范围
+        if f.get('create_time_begin'):
+            conditions.append(EduTask.create_time >= f['create_time_begin'])
+        if f.get('create_time_end'):
+            conditions.append(EduTask.create_time <= f['create_time_end'])
+        # 归属班级（子查询 edu_task_class）
+        if f.get('dept_id'):
+            dept_subq = (
+                select(EduTaskClass.task_id)
+                .where(EduTaskClass.dept_id == f['dept_id'])
+            )
+            conditions.append(EduTask.task_id.in_(dept_subq))
+
         result = await db.execute(
             select(EduTask, TeacherUser.nick_name, StudentUser.nick_name)
             .outerjoin(TeacherUser, EduTask.teacher_id == TeacherUser.user_id)
             .outerjoin(StudentUser, EduTask.student_id == StudentUser.user_id)
-            .where(EduTask.del_flag == '0')
+            .where(*conditions)
             .order_by(desc(EduTask.create_time))
         )
         return list(result.all())

@@ -163,10 +163,11 @@ class TaskService:
 
     @classmethod
     async def get_student_tasks(cls, db: AsyncSession, student_id: int, class_id: int | None,
-                                roles: list | None = None, page_num: int = 1, page_size: int = 10) -> dict:
+                                roles: list | None = None, filters: dict | None = None,
+                                page_num: int = 1, page_size: int = 10) -> dict:
         """
         学生任务列表（V1.1 统一版）：
-        - admin：看到所有任务（教师任务 + 学生自研课题）
+        - admin：看到所有任务（教师任务 + 学生自研课题），支持多条件过滤
         - 学生：教师指派的任务（通过班级分配）+ 自己的自研课题
         """
         from utils.page_util import PageUtil
@@ -174,8 +175,8 @@ class TaskService:
         tasks = []
 
         if 'admin' in role_keys:
-            # admin 能看到所有任务
-            rows_data = await TaskDao.get_all_tasks_for_admin(db)
+            # admin 能看到所有任务，支持过滤
+            rows_data = await TaskDao.get_all_tasks_for_admin(db, filters)
             task_ids = [row[0].task_id for row in rows_data]
             class_mapping = await TaskDao.get_assigned_classes_batch(db, task_ids)
             for row in rows_data:
