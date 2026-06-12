@@ -62,13 +62,18 @@ class RecordService:
 
     @classmethod
     async def get_detail(cls, db: AsyncSession, record_id: int, user_id: int | None = None) -> dict | None:
-        """记录详情"""
+        """记录详情（JOIN task 以返回 preset_scenario 等任务信息）"""
         record = await RecordDao.get_by_id(db, record_id)
         if not record:
             return None
         if user_id and record.user_id != user_id:
             return None
-        return cls._record_to_dict(record)
+        # 查询关联的任务，获取 preset_scenario 等字段
+        task = None
+        if record.task_id:
+            from module_learning.dao.task_dao import TaskDao
+            task = await TaskDao.get_by_id(db, record.task_id)
+        return cls._record_to_dict(record, task=task)
 
     @classmethod
     async def advance_stage(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:
@@ -144,6 +149,7 @@ class RecordService:
             'task_name': task.task_name if task else None,
             'creator_type': task.creator_type if task else None,
             'creator_name': creator_name,
+            'preset_scenario': task.preset_scenario if task else None,
             'deadline': str(task.deadline) if task and task.deadline else None,
             'user_id': record.user_id,
             'current_stage': record.current_stage,

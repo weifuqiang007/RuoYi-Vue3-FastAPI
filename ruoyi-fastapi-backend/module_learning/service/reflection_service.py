@@ -1,5 +1,8 @@
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +14,7 @@ from module_learning.entity.do.reflection_do import EduReflectionData, EduReflec
 from module_learning.entity.vo.reflection_vo import ReflectionSaveModel
 
 
-REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长通过提问帮助学生从"描述经历"走向"反身性反思"。
+REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长结合专业理论指导学生从"描述经历"走向"反身性反思"。
 
 学生的实践背景：
 - 情境描述：{scenario_summary}
@@ -26,23 +29,32 @@ REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长
 当前学生的反思文本：
 {reflection_text}
 
-相关专业理论参考：
+相关专业理论参考（来自知识库检索）：
 {retrieved_knowledge}
 
 任务：
 1. 评估当前反思的深度（给出分数和等级）
-2. 根据当前深度，生成 2-3 个推动反思深化的追问
-3. 关联 1-2 个相关的专业理论或概念
+2. 从上述理论参考中选取 1-2 个最相关的理论，给出**具体的指导意见**：
+   - 说明该理论为什么与学生的反思相关（relevance）
+   - 给出基于该理论的具体反思建议（suggestion），帮助学生从当前层次向下一层次深化
+3. 综合以上理论指导，给出一个整体的反思方向建议（reflection_direction）
+4. 根据当前深度，生成 2-3 个推动反思深化的追问
 
-输出 JSON：
+输出 JSON（严格按此格式）：
 {{
   "depth_score": 0.65,
   "depth_level": "analytical",
+  "theory_guidance": [
+    {{
+      "theory_name": "赋权理论",
+      "theory_source": "Solomon (1976)",
+      "relevance": "该理论与你反思中提到的...直接相关，因为...",
+      "suggestion": "建议你从服务对象的能力和优势出发，重新审视你在...中的角色定位，思考..."
+    }}
+  ],
+  "reflection_direction": "基于以上理论，建议你从...角度继续反思，重点关注...",
   "questions": [
     {{"level": "reflexive", "question": "追问内容", "purpose": "引导目的"}}
-  ],
-  "theories": [
-    {{"name": "理论名称", "description": "关联说明"}}
   ]
 }}"""
 
@@ -132,6 +144,7 @@ class ReflectionService:
 
         # RAG 检索理论
         retrieved_knowledge = await cls._retrieve_theory_knowledge(db, reflection)
+        logger.info('[反思区] RAG检索结果长度: %d', len(retrieved_knowledge or ''))
 
         prompt = REFLECTION_PROMPT.format(
             scenario_summary=scenario_summary,
@@ -142,11 +155,18 @@ class ReflectionService:
         )
 
         from module_learning.service.llm_call import AiCall
+        logger.info('[反思区] 开始调用LLM, reflection_id=%s, model_id=%s', reflection_id, model_id)
         result = await AiCall.call_llm_json(db, model_id, prompt)
+        logger.info('[反思区] LLM返回结果: depth_score=%s, depth_level=%s',
+                    result.get('depth_score'), result.get('depth_level'))
 
         # 保存 AI 对话记录
         old_score = float(reflection.depth_score) if reflection.depth_score else 0.0
         new_score = result.get('depth_score', old_score)
+
+        # 兼容新旧格式：优先用 theory_guidance，降级用 theories
+        theory_guidance = result.get('theory_guidance', [])
+        theories = result.get('theories', [])
 
         await ReflectionDao.add_dialogue(db, EduReflectionDialogue(
             reflection_id=reflection_id,
@@ -155,13 +175,13 @@ class ReflectionService:
             question_level=result.get('depth_level', ''),
             depth_score_before=old_score,
             depth_score_after=new_score,
-            linked_theories=result.get('theories'),
+            linked_theories=theory_guidance if theory_guidance else theories,
         ))
 
         # 更新反思数据
         reflection.depth_score = new_score
         reflection.depth_level = result.get('depth_level', reflection.depth_level)
-        reflection.linked_theories = result.get('theories')
+        reflection.linked_theories = theory_guidance if theory_guidance else theories
         reflection.update_time = datetime.now()
         await ReflectionDao.update(db, reflection)
 
@@ -174,6 +194,25 @@ class ReflectionService:
         ))
 
         return result
+
+    @classmethod
+    async def confirm(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:
+        """确认反思完成"""
+        reflection = await ReflectionDao.get_by_record_id(db, record_id)
+        if not reflection or not reflection.content:
+            raise ValueError('请先保存反思内容')
+        reflection.status = '1'
+        reflection.update_time = datetime.now()
+        await ReflectionDao.update(db, reflection)
+
+        # 更新学习记录状态
+        record = await RecordDao.get_by_id(db, record_id)
+        if record:
+            record.reflection_status = '2'
+            record.update_time = datetime.now()
+            await RecordDao.update(db, record)
+
+        return {'reflection_id': reflection.reflection_id, 'status': 'confirmed'}
 
     @classmethod
     async def get_depth(cls, db: AsyncSession, reflection_id: int) -> dict:
@@ -223,6 +262,8 @@ class ReflectionService:
                     'role': d.role,
                     'content': d.content,
                     'question_level': d.question_level,
+                    'depth_score_before': float(d.depth_score_before) if d.depth_score_before else None,
+                    'depth_score_after': float(d.depth_score_after) if d.depth_score_after else None,
                     'linked_theories': d.linked_theories,
                     'create_time': str(d.create_time) if d.create_time else None,
                 }
@@ -276,10 +317,12 @@ class ReflectionService:
         try:
             record = await RecordDao.get_by_id(db, reflection.record_id)
             if not record or not record.task_id:
+                logger.warning('[反思区] record无task_id, record_id=%s', reflection.record_id)
                 return '（暂无理论库配置）'
             from module_learning.dao.task_dao import TaskDao
             task = await TaskDao.get_by_id(db, record.task_id)
             if not task or not task.reflection_kb_ids:
+                logger.warning('[反思区] task无reflection_kb_ids, task_id=%s', record.task_id)
                 return '（暂无理论库配置）'
 
             from module_rag.service.embedding_service import EmbeddingService
@@ -296,6 +339,8 @@ class ReflectionService:
                 kb_ids=task.reflection_kb_ids,
                 top_k=4,
             )
+            logger.info('[反思区] RAG检索到 %d 条理论片段, kb_ids=%s', len(chunks), task.reflection_kb_ids)
             return '\n\n'.join([f'【{c["content"][:200]}】' for c in chunks])
-        except Exception:
+        except Exception as e:
+            logger.error('[反思区] RAG理论检索异常: %s', e, exc_info=True)
             return '（理论检索暂不可用）'

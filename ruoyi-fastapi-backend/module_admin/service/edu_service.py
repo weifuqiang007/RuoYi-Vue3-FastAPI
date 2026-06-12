@@ -2,6 +2,8 @@ from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime
+
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
 from module_admin.dao.edu_dao import EduDao
@@ -62,13 +64,17 @@ class EduService:
             raise ServiceException(message='学生注册接口 applyRole 须为 student')
         query_db.add(SysUserRole(user_id=user_id, role_id=ROLE_ID_STUDENT))
 
-        await EduDao.add_student_profile(
+        student_profile = await EduDao.add_student_profile(
             query_db,
             user_id=user_id,
             student_no=reg.student_no,
             major=reg.major,
             grade=reg.grade,
         )
+
+        # 如果学生档案关联了班级，同步更新 sys_user.dept_id 以便个人中心显示所属部门
+        if student_profile and student_profile.class_id:
+            await UserDao.edit_user_dao(query_db, {'user_id': user_id, 'dept_id': student_profile.class_id})
 
         audit = EduRegistrationAudit(
             user_id=user_id,
@@ -145,7 +151,7 @@ class EduService:
 
         await UserDao.edit_user_dao(
             query_db,
-            {'user_id': audit.user_id, 'status': '0'},
+            {'user_id': audit.user_id, 'status': '0', 'pwd_update_date': datetime.now()},
         )
 
         role_id = ROLE_ID_STUDENT if audit.apply_role == 'student' else ROLE_ID_TEACHER

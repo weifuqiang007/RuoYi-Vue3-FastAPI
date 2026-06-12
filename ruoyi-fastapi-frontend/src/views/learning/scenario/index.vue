@@ -39,9 +39,9 @@
 
         <div class="mb8" />
 
-        <KeyEventTimeline :events="keyEvents" />
+        <KeyEventTimeline v-model:events="keyEvents" @update:events="onEventsChange" />
         <div class="mb8" />
-        <ProblemCard :problems="identifiedProblems" />
+        <ProblemCard v-model:problems="identifiedProblems" @update:problems="onProblemsChange" />
       </el-col>
 
       <el-col :span="10">
@@ -65,7 +65,7 @@
 </template>
 
 <script setup name="LearningScenario">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { confirmScenario, getScenarioDetail, saveScenario } from '@/api/learning/scenario'
@@ -98,11 +98,20 @@ let abortController = null
 
 const presetScenario = computed(() => props.record?.preset_scenario ?? props.record?.presetScenario ?? '')
 
+function fillPresetScenarioIfEmpty() {
+  if (!description.value?.trim() && presetScenario.value) {
+    description.value = presetScenario.value
+  }
+}
+
 async function loadDetail() {
   const res = await getScenarioDetail(props.recordId)
   const data = res.data || {}
   scenarioId.value = data.scenario_id ?? data.scenarioId ?? props.record?.scenario_id ?? props.record?.scenarioId ?? null
-  description.value = data.description ?? ''
+  const loadedDescription = data.description ?? ''
+  // 如果后端无已保存的描述，且有教师预设情境，则回填到编辑器
+  description.value = loadedDescription || ''
+  fillPresetScenarioIfEmpty()
   keyEvents.value = data.key_events ?? data.keyEvents ?? []
   identifiedProblems.value = data.identified_problems ?? data.identifiedProblems ?? []
   categoryTags.value = data.category_tags ?? data.categoryTags ?? []
@@ -190,6 +199,31 @@ function handleBlurSave() {
   save()
 }
 
+async function onEventsChange(newEvents) {
+  keyEvents.value = newEvents
+  await saveScenarioData()
+}
+
+async function onProblemsChange(newProblems) {
+  identifiedProblems.value = newProblems
+  await saveScenarioData()
+}
+
+async function saveScenarioData() {
+  try {
+    const res = await saveScenario({
+      record_id: props.recordId,
+      scenario_id: scenarioId.value,
+      key_events: keyEvents.value,
+      identified_problems: identifiedProblems.value
+    })
+    const data = res.data || {}
+    scenarioId.value = scenarioId.value ?? data.scenario_id ?? data.scenarioId ?? null
+  } catch {
+    ElMessage.error('自动保存失败')
+  }
+}
+
 function formatTag(t) {
   const obj = normalizeMaybeJson(t)
   if (typeof obj === 'string') return obj
@@ -213,6 +247,10 @@ function normalizeMaybeJson(v) {
 
 onMounted(() => {
   loadDetail()
+})
+
+watch(presetScenario, () => {
+  fillPresetScenarioIfEmpty()
 })
 </script>
 

@@ -146,6 +146,15 @@ async function reload() {
   if (!recordId.value) return
   const res = await getRecordDetail(recordId.value)
   record.value = res.data || {}
+
+  // 如果 URL 中已指定了有效的区阶段（zoneStages 之一），尊重它
+  // 这使得已提交/已完成的记录也能通过点击步骤条或按钮跳转到各区
+  const urlStage = route.query.stage
+  if (urlStage && zoneStages.includes(urlStage)) {
+    visibleStage.value = urlStage
+    return
+  }
+
   syncVisibleStage(recordStage.value)
 }
 

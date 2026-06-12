@@ -7,6 +7,8 @@ from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.router import APIRouterPro
 from module_admin.entity.vo.user_vo import CurrentUserModel
+from fastapi import Body
+
 from module_learning.entity.vo.reflection_vo import ReflectionSaveModel, ReflectionQuestionModel
 from module_learning.service.reflection_service import ReflectionService
 from utils.response_util import ResponseUtil
@@ -74,6 +76,20 @@ class ReflectionController:
     ) -> Response:
         result = await ReflectionService.get_depth_history(query_db, reflection_id)
         return ResponseUtil.success(data=result)
+
+    @staticmethod
+    @reflection_controller.put('/confirm', summary='确认反思完成')
+    async def confirm(
+        request: Request,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        record_id: int = Body(..., embed=True, description='学习记录ID'),
+    ) -> Response:
+        try:
+            result = await ReflectionService.confirm(query_db, record_id, current_user.user.user_id)
+            return ResponseUtil.success(data=result)
+        except ValueError as e:
+            return ResponseUtil.failure(msg=str(e))
 
     @staticmethod
     @reflection_controller.get('/detail/{record_id}', summary='反思区完整数据')

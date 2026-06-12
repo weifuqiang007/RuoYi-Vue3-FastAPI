@@ -15,6 +15,14 @@ class ResearchFrameworkModel(BaseModel):
     selected_question: str = Field(..., description='选定的研究问题')
 
 
+class ResearchSaveModel(BaseModel):
+    """保存研究区整体数据"""
+    research_id: int = Field(..., description='研究ID')
+    selected_question: Optional[str] = Field(None, description='选定的研究问题')
+    material_summary: Optional[str] = Field(None, description='材料汇总')
+    chapters: Optional[list] = Field(None, description='章节内容列表，每项含chapter_index和content')
+
+
 class ResearchChapterSaveModel(BaseModel):
     """保存章节"""
     research_id: int = Field(..., description='研究ID')
