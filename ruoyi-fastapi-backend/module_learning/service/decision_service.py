@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,8 +102,17 @@ class DecisionService:
         if not decision:
             raise ValueError('决策记录不存在')
 
-        knowledge_context = await cls._retrieve_ethics_knowledge(db, decision)
+        logging.info('[决策区] 开始伦理分析, decision_id=%s', decision_id)
 
+        # 1. RAG 检索伦理知识
+        try:
+            knowledge_context = await cls._retrieve_ethics_knowledge(db, decision)
+            logging.info('[决策区] 知识检索完成, decision_id=%s, 知识长度=%d', decision_id, len(knowledge_context))
+        except Exception as e:
+            logging.warning('[决策区] 知识检索失败, decision_id=%s, error=%s', decision_id, e)
+            knowledge_context = '（伦理知识检索暂不可用）'
+
+        # 2. 构建 Prompt 并调用 LLM
         prompt = DECISION_ETHICS_PROMPT.format(
             key_event_desc=decision.key_event_desc or '',
             is_intervened='是' if decision.is_intervened else '否',
@@ -113,14 +123,19 @@ class DecisionService:
         )
 
         from module_learning.service.llm_call import AiCall
-        result = await AiCall.call_llm_json(db, model_id, prompt)
+        try:
+            result = await AiCall.call_llm_json(db, model_id, prompt)
+            logging.info('[决策区] LLM分析完成, decision_id=%s', decision_id)
+        except Exception as e:
+            logging.error('[决策区] LLM调用失败, decision_id=%s, error=%s', decision_id, e)
+            raise ValueError(f'AI分析生成失败，请稍后重试。原因：{e}')
 
-        # 保存分析结果
+        # 3. 保存分析结果
         decision.ethics_analysis = result
         decision.update_time = datetime.now()
         await DecisionDao.update(db, decision)
 
-        # 保存对话记录
+        # 4. 保存对话记录
         await DecisionDao.add_dialogue(db, EduDecisionDialogue(
             decision_id=decision_id,
             role='assistant',
@@ -177,7 +192,7 @@ class DecisionService:
             if not record or not record.task_id:
                 return '（暂无伦理知识库配置）'
             from module_learning.dao.task_dao import TaskDao
-            task = await TaskDao.get_by_id(db, record.task_id)
+            task = await TaskDao.get_by_id(db, record.task_id) # 3
             if not task or not task.decision_kb_ids:
                 return '（暂无伦理知识库配置）'
 
@@ -193,9 +208,12 @@ class DecisionService:
                 kb_ids=task.decision_kb_ids,
                 top_k=5,
             )
+            logging.info("chunks is %s:",chunks)
             return '\n\n'.join([
-                f'【参考{i+1}】{c["content"][:300]}'
+                # f'【参考{i+1}】{c["content"][:300]}'
+                f'【参考{i + 1}】{c["content"]}'
                 for i, c in enumerate(chunks)
             ])
-        except Exception:
+        except Exception as e:
+            logging.warning('[决策区] 伦理知识检索异常: %s', e)
             return '（伦理知识检索暂不可用）'

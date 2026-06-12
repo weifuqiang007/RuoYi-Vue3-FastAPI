@@ -24,6 +24,9 @@ class TaskService:
         role_keys = roles or []
         is_teacher = 'teacher' in role_keys
 
+        # 默认公用知识库ID，当未传知识库配置时使用
+        DEFAULT_KB_IDS = [5]
+
         task = EduTask(
             task_name=data.task_name,
             task_description=data.task_description,
@@ -32,6 +35,11 @@ class TaskService:
             # 学生/管理员：通过 student_id 字段记录，这样 get_student_self_tasks 能匹配到
             teacher_id=user_id if is_teacher else None,
             student_id=user_id if not is_teacher else None,
+            # 四区知识库配置：未传时默认使用公用知识库
+            scenario_kb_ids=data.scenario_kb_ids if data.scenario_kb_ids is not None else DEFAULT_KB_IDS,
+            decision_kb_ids=data.decision_kb_ids if data.decision_kb_ids is not None else DEFAULT_KB_IDS,
+            reflection_kb_ids=data.reflection_kb_ids if data.reflection_kb_ids is not None else DEFAULT_KB_IDS,
+            research_kb_ids=data.research_kb_ids if data.research_kb_ids is not None else DEFAULT_KB_IDS,
             status='1',  # 自研课题直接发布
             create_by=create_by,
         )
@@ -65,12 +73,17 @@ class TaskService:
     @classmethod
     async def create_student_task(cls, db: AsyncSession, data: StudentTaskCreateModel, student_id: int, create_by: str = '') -> dict:
         """学生自建自研课题（creator_type='1'）"""
+        DEFAULT_KB_IDS = [5]
         task = EduTask(
             task_name=data.task_name,
             task_description=data.task_description,
             teacher_id=None,
             creator_type='1',
             student_id=student_id,
+            scenario_kb_ids=data.scenario_kb_ids if data.scenario_kb_ids is not None else DEFAULT_KB_IDS,
+            decision_kb_ids=data.decision_kb_ids if data.decision_kb_ids is not None else DEFAULT_KB_IDS,
+            reflection_kb_ids=data.reflection_kb_ids if data.reflection_kb_ids is not None else DEFAULT_KB_IDS,
+            research_kb_ids=data.research_kb_ids if data.research_kb_ids is not None else DEFAULT_KB_IDS,
             status='1',  # 学生自建课题直接为已发布状态
             create_by=create_by,
         )
@@ -254,9 +267,16 @@ class TaskService:
             'student_id': task.student_id,
             'student_name': student_name,
             'preset_scenario': task.preset_scenario,
+            'scenario_kb_ids': task.scenario_kb_ids,
+            'decision_kb_ids': task.decision_kb_ids,
+            'reflection_kb_ids': task.reflection_kb_ids,
+            'research_kb_ids': task.research_kb_ids,
+            'scenario_config': task.scenario_config,
+            'reflection_config': task.reflection_config,
             'deadline': str(task.deadline) if task.deadline else None,
             'status': task.status,
             'source': source,
             'assigned_classes': assigned_classes or [],
             'create_time': str(task.create_time) if task.create_time else None,
+            'update_time': str(task.update_time) if task.update_time else None,
         }

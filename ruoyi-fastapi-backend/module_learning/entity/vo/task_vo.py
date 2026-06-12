@@ -67,6 +67,10 @@ class StudentTaskCreateModel(BaseModel):
     """学生自建自研课题请求"""
     task_name: str = Field(..., max_length=200, description='课题名称')
     task_description: Optional[str] = Field(None, description='课题描述')
+    scenario_kb_ids: Optional[list[int]] = Field(None, description='情境区知识库ID列表，不传则默认使用公用知识库[5]')
+    decision_kb_ids: Optional[list[int]] = Field(None, description='决策区知识库ID列表，不传则默认使用公用知识库[5]')
+    reflection_kb_ids: Optional[list[int]] = Field(None, description='反思区知识库ID列表，不传则默认使用公用知识库[5]')
+    research_kb_ids: Optional[list[int]] = Field(None, description='研究区知识库ID列表，不传则默认使用公用知识库[5]')
 
 
 class TaskListQueryModel(BaseModel):

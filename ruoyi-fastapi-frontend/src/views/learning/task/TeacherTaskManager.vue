@@ -185,6 +185,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { listTeacherTask, createTask, updateTask, deleteTask, publishTask, getTaskDetail } from '@/api/learning/task'
 import { listDept } from '@/api/system/dept'
+import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
 import TaskFormDialog from './components/TaskFormDialog.vue'
 
 const { proxy } = getCurrentInstance()
@@ -215,6 +216,13 @@ const publishTaskId = ref(null)
 
 const detailVisible = ref(false)
 const detail = ref({})
+const kbOptions = ref([])
+const kbLoading = ref(false)
+const kbLoaded = ref(false)
+
+const kbNameMap = computed(() => {
+  return new Map(kbOptions.value.map(kb => [String(kb.kb_id), kb.kb_name]))
+})
 
 const assignedClassVisible = ref(false)
 const assignedClassList = ref([])
@@ -225,10 +233,10 @@ function normalizeTaskRow(row) {
     task_name: row.task_name ?? row.taskName,
     task_description: row.task_description ?? row.taskDescription,
     preset_scenario: row.preset_scenario ?? row.presetScenario,
-    scenario_kb_ids: row.scenario_kb_ids ?? row.scenarioKbIds ?? [],
-    decision_kb_ids: row.decision_kb_ids ?? row.decisionKbIds ?? [],
-    reflection_kb_ids: row.reflection_kb_ids ?? row.reflectionKbIds ?? [],
-    research_kb_ids: row.research_kb_ids ?? row.researchKbIds ?? [],
+    scenario_kb_ids: normalizeKbIdList(row.scenario_kb_ids ?? row.scenarioKbIds),
+    decision_kb_ids: normalizeKbIdList(row.decision_kb_ids ?? row.decisionKbIds),
+    reflection_kb_ids: normalizeKbIdList(row.reflection_kb_ids ?? row.reflectionKbIds),
+    research_kb_ids: normalizeKbIdList(row.research_kb_ids ?? row.researchKbIds),
     deadline: row.deadline,
     status: row.status,
     create_time: row.create_time ?? row.createTime,
@@ -239,6 +247,60 @@ function normalizeTaskRow(row) {
     teacher_name: row.teacher_name ?? row.teacherName,
     assigned_classes: row.assigned_classes ?? row.assignedClasses ?? []
   }
+}
+
+function normalizeKbId(id) {
+  if (id === null || id === undefined || id === '') return id
+  const n = Number(id)
+  return Number.isNaN(n) ? id : n
+}
+
+function normalizeKbIdList(value) {
+  if (Array.isArray(value)) return value.map(normalizeKbId).filter(id => id !== null && id !== undefined && id !== '')
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return []
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) return normalizeKbIdList(parsed)
+    } catch (e) {
+      // Ignore non-JSON strings and fall back to comma separated ids.
+    }
+    return text.split(',').map(item => normalizeKbId(item.trim())).filter(id => id !== null && id !== undefined && id !== '')
+  }
+  return value === null || value === undefined ? [] : [normalizeKbId(value)]
+}
+
+function normalizeKbOption(kb) {
+  const rawId = kb?.kb_id ?? kb?.kbId
+  return {
+    ...kb,
+    kb_id: normalizeKbId(rawId),
+    kb_name: kb?.kb_name ?? kb?.kbName ?? String(rawId ?? '')
+  }
+}
+
+async function loadKbOptions() {
+  if (kbLoading.value) return
+  kbLoading.value = true
+  try {
+    const res = await listKnowledgeBase()
+    const data = res?.data
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    kbOptions.value = rows.map(normalizeKbOption)
+    kbLoaded.value = true
+  } catch (e) {
+    kbOptions.value = []
+    kbLoaded.value = false
+    ElMessage.error(e?.message || '获取知识库列表失败')
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+async function ensureKbOptions() {
+  if (kbLoaded.value && kbOptions.value.length > 0) return
+  await loadKbOptions()
 }
 
 function statusLabel(v) {
@@ -295,9 +357,15 @@ function handleAdd() {
   dialogVisible.value = true
 }
 
-function handleEdit(row) {
-  editingRow.value = { ...row }
-  dialogVisible.value = true
+async function handleEdit(row) {
+  try {
+    await ensureKbOptions()
+    const res = await getTaskDetail(row.task_id)
+    editingRow.value = normalizeTaskRow(res.data || row)
+    dialogVisible.value = true
+  } catch (e) {
+    ElMessage.error(e?.message || '获取任务详情失败')
+  }
 }
 
 async function handleDialogSuccess(payload) {
@@ -334,9 +402,14 @@ async function handleMore(cmd, row) {
     return
   }
   if (cmd === 'detail') {
-    const res = await getTaskDetail(row.task_id)
-    detail.value = normalizeTaskRow(res.data || {})
-    detailVisible.value = true
+    try {
+      await ensureKbOptions()
+      const res = await getTaskDetail(row.task_id)
+      detail.value = normalizeTaskRow(res.data || row)
+      detailVisible.value = true
+    } catch (e) {
+      ElMessage.error(e?.message || '获取任务详情失败')
+    }
   }
 }
 
@@ -358,9 +431,9 @@ async function submitPublish() {
 }
 
 function formatKbIds(v) {
-  if (!v) return ''
-  if (Array.isArray(v)) return v.join(', ')
-  return String(v)
+  const ids = normalizeKbIdList(v)
+  if (ids.length === 0) return '-'
+  return ids.map(id => kbNameMap.value.get(String(id)) || `知识库#${id}`).join('、')
 }
 
 function formatAssignedClasses(list) {

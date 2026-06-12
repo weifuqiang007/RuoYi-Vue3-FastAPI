@@ -143,8 +143,8 @@
       @pagination="getList"
     />
 
-    <el-dialog title="新增自研课题" v-model="selfDialogVisible" width="520px">
-      <el-form label-width="90px">
+    <el-dialog title="新增自研课题" v-model="selfDialogVisible" width="680px">
+      <el-form label-width="100px">
         <el-form-item label="课题名称" required>
           <el-input v-model="selfTaskName" placeholder="请输入课题名称" />
         </el-form-item>
@@ -156,6 +156,73 @@
             placeholder="请输入课题描述（可选）"
           />
         </el-form-item>
+
+        <el-divider content-position="left">各区知识库配置</el-divider>
+
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="情境区KB">
+              <el-select
+                v-model="selfScenarioKbIds"
+                multiple
+                filterable
+                clearable
+                style="width: 100%"
+                :loading="kbLoading"
+                @visible-change="handleKbVisibleChange"
+              >
+                <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="决策区KB">
+              <el-select
+                v-model="selfDecisionKbIds"
+                multiple
+                filterable
+                clearable
+                style="width: 100%"
+                :loading="kbLoading"
+                @visible-change="handleKbVisibleChange"
+              >
+                <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="反思区KB">
+              <el-select
+                v-model="selfReflectionKbIds"
+                multiple
+                filterable
+                clearable
+                style="width: 100%"
+                :loading="kbLoading"
+                @visible-change="handleKbVisibleChange"
+              >
+                <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="研究区KB">
+              <el-select
+                v-model="selfResearchKbIds"
+                multiple
+                filterable
+                clearable
+                style="width: 100%"
+                :loading="kbLoading"
+                @visible-change="handleKbVisibleChange"
+              >
+                <el-option v-for="kb in kbOptions" :key="kb.kb_id" :label="kb.kb_name" :value="kb.kb_id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
       <template #footer>
         <el-button @click="selfDialogVisible = false">取 消</el-button>
@@ -193,6 +260,7 @@ import { ElMessage } from 'element-plus'
 import { listStudentTask, getTaskDetail, createStudentTask } from '@/api/learning/task'
 import { startRecord } from '@/api/learning/record'
 import { listDept } from '@/api/system/dept'
+import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
 
 const router = useRouter()
 
@@ -218,6 +286,16 @@ const selfDialogVisible = ref(false)
 const selfTaskName = ref('')
 const selfTaskDescription = ref('')
 const creating = ref(false)
+
+// 四区知识库配置
+const DEFAULT_KB_ID = 5
+const kbOptions = ref([])
+const kbLoading = ref(false)
+const kbLoaded = ref(false)
+const selfScenarioKbIds = ref([DEFAULT_KB_ID])
+const selfDecisionKbIds = ref([DEFAULT_KB_ID])
+const selfReflectionKbIds = ref([DEFAULT_KB_ID])
+const selfResearchKbIds = ref([DEFAULT_KB_ID])
 
 const detailVisible = ref(false)
 const detail = ref({})
@@ -336,6 +414,33 @@ async function handleStart(row) {
   await router.push({ path: '/learning/zone', query: { record_id: recordId } })
 }
 
+async function loadKbOptions() {
+  if (kbLoading.value) return
+  kbLoading.value = true
+  try {
+    const res = await listKnowledgeBase()
+    const data = res?.data
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    kbOptions.value = rows.map(kb => ({
+      kb_id: kb?.kb_id ?? kb?.kbId,
+      kb_name: kb?.kb_name ?? kb?.kbName ?? String(kb?.kb_id ?? '')
+    }))
+    kbLoaded.value = true
+  } catch (e) {
+    kbOptions.value = []
+    kbLoaded.value = false
+    ElMessage.error(e?.message || '获取知识库列表失败')
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+async function handleKbVisibleChange(v) {
+  if (v && !kbLoaded.value) {
+    await loadKbOptions()
+  }
+}
+
 async function submitSelf() {
   const name = selfTaskName.value.trim()
   if (!name) {
@@ -348,7 +453,14 @@ async function submitSelf() {
     selfDialogVisible.value = false
     selfTaskName.value = ''
     selfTaskDescription.value = ''
-    await createStudentTask({ task_name: name, task_description: desc || undefined })
+    await createStudentTask({
+      task_name: name,
+      task_description: desc || undefined,
+      scenario_kb_ids: selfScenarioKbIds.value,
+      decision_kb_ids: selfDecisionKbIds.value,
+      reflection_kb_ids: selfReflectionKbIds.value,
+      research_kb_ids: selfResearchKbIds.value,
+    })
     ElMessage.success('创建成功')
     getList()
   } finally {
@@ -359,7 +471,16 @@ async function submitSelf() {
 function openSelfDialog() {
   selfTaskName.value = ''
   selfTaskDescription.value = ''
+  // 默认选中公用知识库
+  selfScenarioKbIds.value = [DEFAULT_KB_ID]
+  selfDecisionKbIds.value = [DEFAULT_KB_ID]
+  selfReflectionKbIds.value = [DEFAULT_KB_ID]
+  selfResearchKbIds.value = [DEFAULT_KB_ID]
   selfDialogVisible.value = true
+  // 预加载知识库列表
+  if (!kbLoaded.value) {
+    loadKbOptions()
+  }
 }
 
 async function openDetail(row) {

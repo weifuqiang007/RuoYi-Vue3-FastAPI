@@ -166,7 +166,8 @@ async function loadKbOptions() {
   try {
     const res = await listKnowledgeBase()
     const data = res?.data
-    kbOptions.value = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    kbOptions.value = rows.map(normalizeKbOption)
     kbLoaded.value = true
   } catch (e) {
     kbOptions.value = []
@@ -175,6 +176,37 @@ async function loadKbOptions() {
   } finally {
     kbLoading.value = false
   }
+}
+
+function normalizeKbOption(kb) {
+  const rawId = kb?.kb_id ?? kb?.kbId
+  return {
+    ...kb,
+    kb_id: normalizeKbId(rawId),
+    kb_name: kb?.kb_name ?? kb?.kbName ?? String(rawId ?? '')
+  }
+}
+
+function normalizeKbId(id) {
+  if (id === null || id === undefined || id === '') return id
+  const n = Number(id)
+  return Number.isNaN(n) ? id : n
+}
+
+function normalizeIdList(value) {
+  if (Array.isArray(value)) return value.map(normalizeKbId).filter(id => id !== null && id !== undefined && id !== '')
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return []
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) return normalizeIdList(parsed)
+    } catch (e) {
+      // Ignore non-JSON strings and fall back to comma separated ids.
+    }
+    return text.split(',').map(item => normalizeKbId(item.trim())).filter(id => id !== null && id !== undefined && id !== '')
+  }
+  return value === null || value === undefined ? [] : [normalizeKbId(value)]
 }
 
 async function loadDeptOptions() {
@@ -205,10 +237,10 @@ function resetFormFromProps() {
   form.task_name = d.task_name ?? d.taskName ?? ''
   form.task_description = d.task_description ?? d.taskDescription ?? ''
   form.preset_scenario = d.preset_scenario ?? d.presetScenario ?? ''
-  form.scenario_kb_ids = (d.scenario_kb_ids ?? d.scenarioKbIds ?? []).slice?.() || []
-  form.decision_kb_ids = (d.decision_kb_ids ?? d.decisionKbIds ?? []).slice?.() || []
-  form.reflection_kb_ids = (d.reflection_kb_ids ?? d.reflectionKbIds ?? []).slice?.() || []
-  form.research_kb_ids = (d.research_kb_ids ?? d.researchKbIds ?? []).slice?.() || []
+  form.scenario_kb_ids = normalizeIdList(d.scenario_kb_ids ?? d.scenarioKbIds)
+  form.decision_kb_ids = normalizeIdList(d.decision_kb_ids ?? d.decisionKbIds)
+  form.reflection_kb_ids = normalizeIdList(d.reflection_kb_ids ?? d.reflectionKbIds)
+  form.research_kb_ids = normalizeIdList(d.research_kb_ids ?? d.researchKbIds)
   form.deadline = d.deadline ?? ''
   // 回显已分配的班级：从 assigned_classes 中提取 dept_id 列表
   const ac = d.assigned_classes ?? d.assignedClasses ?? []

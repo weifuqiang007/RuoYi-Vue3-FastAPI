@@ -12,7 +12,8 @@ export function ethicsAnalyzeDecision(data) {
   return request({
     url: '/learning/decision/ethics-analyze',
     method: 'post',
-    data: data
+    data: data,
+    timeout: 120000  // AI分析耗时较长，单独设置120秒超时
   })
 }
 

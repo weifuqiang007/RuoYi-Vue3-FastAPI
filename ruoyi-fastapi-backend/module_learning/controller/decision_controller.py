@@ -44,8 +44,12 @@ class DecisionController:
         try:
             result = await DecisionService.ethics_analyze(query_db, data.decision_id)
             return ResponseUtil.success(data=result)
-        except Exception as e:
+        except ValueError as e:
             return ResponseUtil.failure(msg=str(e))
+        except Exception as e:
+            import logging
+            logging.error('[决策区] ethics-analyze 接口异常: %s', e, exc_info=True)
+            return ResponseUtil.failure(msg='AI分析服务暂时不可用，请稍后重试')
 
     @staticmethod
     @decision_controller.get('/list/{record_id}', summary='获取决策记录列表')

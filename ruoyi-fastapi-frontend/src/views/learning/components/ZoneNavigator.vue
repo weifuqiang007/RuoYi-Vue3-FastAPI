@@ -21,9 +21,11 @@ const props = defineProps({
 
 const emit = defineEmits(['select'])
 
+const stages = ['scenario', 'decision', 'reflection', 'research']
+
 const activeIndex = computed(() => {
-  const stage = props.currentStage || 'scenario'
-  return ['scenario', 'decision', 'reflection', 'research'].indexOf(stage)
+  const index = stages.indexOf(props.currentStage || 'scenario')
+  return index >= 0 ? index : stages.length
 })
 
 function emitSelect(stage) {
@@ -36,4 +38,3 @@ function emitSelect(stage) {
   cursor: pointer;
 }
 </style>
-
