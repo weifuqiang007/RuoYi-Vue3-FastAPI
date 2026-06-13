@@ -244,8 +244,13 @@ function cloneRequestValue(value) {
   if (value === undefined || value === null) {
     return value
   }
-  if (typeof globalThis.structuredClone === 'function') {
-    return globalThis.structuredClone(value)
+  try {
+    if (typeof globalThis.structuredClone === 'function') {
+      return globalThis.structuredClone(value)
+    }
+  } catch {
+    // structuredClone 无法克隆 Vue 响应式 Proxy 等非标准对象，
+    // 回退到 JSON 序列化（JSON.stringify 会自动解包 Proxy）
   }
   if (typeof value === 'object') {
     return JSON.parse(JSON.stringify(value))
