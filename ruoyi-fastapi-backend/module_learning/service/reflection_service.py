@@ -1,8 +1,5 @@
 import json
-import logging
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +9,7 @@ from module_learning.dao.scenario_dao import ScenarioDao
 from module_learning.dao.decision_dao import DecisionDao
 from module_learning.entity.do.reflection_do import EduReflectionData, EduReflectionDialogue, EduReflectionDepthHistory
 from module_learning.entity.vo.reflection_vo import ReflectionSaveModel
+from utils.log_util import logger
 
 
 REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长结合专业理论指导学生从"描述经历"走向"反身性反思"。

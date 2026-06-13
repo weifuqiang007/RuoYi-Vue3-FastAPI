@@ -302,12 +302,12 @@ class EduDao:
 
     @classmethod
     async def get_student_profile_by_user_id(cls, db: AsyncSession, user_id: int) -> EduStudentProfile | None:
-        result = await db.execute(select(EduStudentProfile).where(EduStudentProfile.user_id == user_id))
+        result = await db.execute(select(EduStudentProfile).where(EduStudentProfile.user_id == user_id, EduStudentProfile.del_flag == '0'))
         return result.scalars().first()
 
     @classmethod
     async def get_teacher_profile_by_user_id(cls, db: AsyncSession, user_id: int) -> EduTeacherProfile | None:
-        result = await db.execute(select(EduTeacherProfile).where(EduTeacherProfile.user_id == user_id))
+        result = await db.execute(select(EduTeacherProfile).where(EduTeacherProfile.user_id == user_id, EduTeacherProfile.del_flag == '0'))
         return result.scalars().first()
 
     @classmethod

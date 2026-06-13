@@ -98,10 +98,15 @@ class TaskDao:
 
     @classmethod
     async def get_published_tasks_by_dept_ids(cls, db: AsyncSession, dept_ids: list[int]) -> list:
-        """获取指定班级的已发布任务（仅教师指派的，creator_type='0'）"""
+        """
+        获取指定班级的已发布任务（仅教师指派的，creator_type='0'）。
+        返回 [(EduTask, teacher_nick_name), ...]
+        """
+        TeacherUser = aliased(SysUser)
         result = await db.execute(
-            select(EduTask)
+            select(EduTask, TeacherUser.nick_name)
             .join(EduTaskClass, EduTask.task_id == EduTaskClass.task_id)
+            .outerjoin(TeacherUser, EduTask.teacher_id == TeacherUser.user_id)
             .where(
                 EduTaskClass.dept_id.in_(dept_ids),
                 EduTask.creator_type == '0',
@@ -110,7 +115,7 @@ class TaskDao:
             )
             .order_by(desc(EduTask.create_time))
         )
-        return list(result.scalars().all())
+        return list(result.all())
 
     @classmethod
     async def update_task(cls, db: AsyncSession, task: EduTask) -> EduTask:

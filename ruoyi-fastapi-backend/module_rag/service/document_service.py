@@ -5,7 +5,6 @@
 """
 import os
 import tempfile
-import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from module_rag.dao.document_dao import DocumentDao
@@ -15,8 +14,7 @@ from module_rag.service.parser import get_parser
 from module_rag.service.chunker.fixed_chunker import FixedChunker
 from module_rag.service.embedding_service import EmbeddingService
 from module_rag.utils.minio_client import MinioClient
-
-logger = logging.getLogger(__name__)
+from utils.log_util import logger
 
 
 class DocumentService:

@@ -201,12 +201,20 @@ class TaskService:
                     assigned_classes=class_mapping.get(task.task_id, []),
                 ))
         else:
-            # 1. 教师指派的任务
+            # 1. 教师指派的任务（解析教师名 + 班级名）
             if class_id:
                 published = await TaskDao.get_published_tasks_by_dept_ids(db, [class_id])
-                for t in published:
-                    tasks.append(cls._task_to_dict(t, source='assigned'))
-            # 2. 自己的自研课题
+                published_ids = [row[0].task_id for row in published]
+                class_mapping = await TaskDao.get_assigned_classes_batch(db, published_ids)
+                for row in published:
+                    task = row[0]
+                    teacher_name = row[1]
+                    tasks.append(cls._task_to_dict(
+                        task, source='assigned',
+                        teacher_name=teacher_name,
+                        assigned_classes=class_mapping.get(task.task_id, []),
+                    ))
+            # 2. 自己的自研课题（无需教师名和班级）
             self_tasks = await TaskDao.get_student_self_tasks(db, student_id)
             for t in self_tasks:
                 tasks.append(cls._task_to_dict(t, source='self_study'))

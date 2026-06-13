@@ -69,6 +69,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { confirmScenario, getScenarioDetail, saveScenario } from '@/api/learning/scenario'
+import { advanceRecordStage } from '@/api/learning/record'
 import { analyzeScenarioStream } from '@/api/learning/scenario'
 import ScenarioEditor from './components/ScenarioEditor.vue'
 import KeyEventTimeline from './components/KeyEventTimeline.vue'
@@ -187,7 +188,22 @@ async function confirm() {
       await save()
     }
     await confirmScenario({ record_id: props.recordId, scenario_id: scenarioId.value })
-    ElMessage.success('已确认')
+
+    // 推进记录状态机：情景区 → 决策区
+    const currentStage = props.record?.current_stage ?? props.record?.currentStage
+    const isOngoing = !['submitted', 'completed'].includes(String(currentStage))
+    if (isOngoing) {
+      await advanceRecordStage(props.recordId)
+    }
+
+    ElMessage.success('已保存并推进到决策区')
+
+    // 清除 URL 中的 stage 参数，让 ZoneMain.reload() 使用后端返回的真实阶段
+    const route = useRoute()
+    const router = useRouter()
+    const { stage: _stage, ...restQuery } = route.query
+    await router.replace({ query: restQuery })
+
     emit('stage-updated')
   } finally {
     confirming.value = false

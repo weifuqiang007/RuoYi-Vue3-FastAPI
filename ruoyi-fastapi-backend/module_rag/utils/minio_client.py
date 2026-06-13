@@ -3,7 +3,6 @@
 参考 ragflow/rag/utils/minio_conn.py 的 RAGFlowMinio 类
 简化版：去掉多租户、prefix_path、single-bucket 等复杂逻辑，只保留核心的 put/get/presigned_url
 """
-import logging
 import time
 from io import BytesIO
 from datetime import timedelta
@@ -12,8 +11,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from config.env import MinioConfig
-
-logger = logging.getLogger(__name__)
+from utils.log_util import logger
 
 
 class MinioClient:

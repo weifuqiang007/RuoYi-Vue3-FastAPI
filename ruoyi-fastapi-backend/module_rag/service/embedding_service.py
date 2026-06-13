@@ -7,19 +7,20 @@ import asyncio
 import os
 from openai import AsyncOpenAI
 
+
 class EmbeddingService:
     """
     Embedding 服务
     批量处理逻辑参考 ragflow/rag/llm/embedding_model.py 的 batch 处理方式
     使用智谱 API（兼容 OpenAI SDK）
     """
-    BATCH_SIZE = 25  #智普API 每批次最多25条
+    BATCH_SIZE = 25  # 智普API 每批次最多25条
 
-    #todo 未来换成硅集流动的模型。需要改动的地方有输入、输出的格式。如果有可能，需要改成一个公共的方法类
+    # todo 未来换成硅集流动的模型。需要改动的地方有输入、输出的格式。如果有可能，需要改成一个公共的方法类
     @classmethod
     def _get_client(cls) -> AsyncOpenAI:
         return AsyncOpenAI(
-            api_key=os.getenv('ZHIPU_API_KEY',''),
+            api_key=os.getenv('ZHIPU_API_KEY', ''),
             base_url='https://open.bigmodel.cn/api/paas/v4'
         )
 
@@ -33,7 +34,7 @@ class EmbeddingService:
         all_embeddings = []
 
         for i in range(0, len(texts), cls.BATCH_SIZE):
-            batch = texts[i: i+ cls.BATCH_SIZE]
+            batch = texts[i: i + cls.BATCH_SIZE]
 
             for retry in range(3):
                 try:
@@ -42,11 +43,11 @@ class EmbeddingService:
                         input=batch,
                         dimensions=1024,  # 指定输出 1024 维（pgvector 索引最大支持 2000 维，2048 超限）
                     )
-                    batch_embeddings = [item.embedding for  item in response.data]
+                    batch_embeddings = [item.embedding for item in response.data]
                     all_embeddings.extend(batch_embeddings)
                     break
                 except Exception as e:
-                    if retry ==2 :
+                    if retry == 2:
                         raise
                     await asyncio.sleep(1 * (retry + 1))
             if i + cls.BATCH_SIZE < len(texts):

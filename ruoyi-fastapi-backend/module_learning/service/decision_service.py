@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +6,7 @@ from module_learning.dao.decision_dao import DecisionDao
 from module_learning.dao.record_dao import RecordDao
 from module_learning.entity.do.decision_do import EduDecisionData, EduDecisionDialogue
 from module_learning.entity.vo.decision_vo import DecisionSaveModel
+from utils.log_util import logger
 
 
 DECISION_ETHICS_PROMPT = """你是一位社会工作伦理专家，正在指导一位实习社工分析其在实践中的伦理决策。
@@ -102,14 +102,14 @@ class DecisionService:
         if not decision:
             raise ValueError('决策记录不存在')
 
-        logging.info('[决策区] 开始伦理分析, decision_id=%s', decision_id)
+        logger.info('[决策区] 开始伦理分析, decision_id=%s', decision_id)
 
         # 1. RAG 检索伦理知识
         try:
             knowledge_context = await cls._retrieve_ethics_knowledge(db, decision)
-            logging.info('[决策区] 知识检索完成, decision_id=%s, 知识长度=%d', decision_id, len(knowledge_context))
+            logger.info('[决策区] 知识检索完成, decision_id=%s, 知识长度=%d', decision_id, len(knowledge_context))
         except Exception as e:
-            logging.warning('[决策区] 知识检索失败, decision_id=%s, error=%s', decision_id, e)
+            logger.warning('[决策区] 知识检索失败, decision_id=%s, error=%s', decision_id, e)
             knowledge_context = '（伦理知识检索暂不可用）'
 
         # 2. 构建 Prompt 并调用 LLM
@@ -125,9 +125,9 @@ class DecisionService:
         from module_learning.service.llm_call import AiCall
         try:
             result = await AiCall.call_llm_json(db, model_id, prompt)
-            logging.info('[决策区] LLM分析完成, decision_id=%s', decision_id)
+            logger.info('[决策区] LLM分析完成, decision_id=%s', decision_id)
         except Exception as e:
-            logging.error('[决策区] LLM调用失败, decision_id=%s, error=%s', decision_id, e)
+            logger.error('[决策区] LLM调用失败, decision_id=%s, error=%s', decision_id, e)
             raise ValueError(f'AI分析生成失败，请稍后重试。原因：{e}')
 
         # 3. 保存分析结果
@@ -208,12 +208,12 @@ class DecisionService:
                 kb_ids=task.decision_kb_ids,
                 top_k=5,
             )
-            logging.info("chunks is %s:",chunks)
+            logger.info("chunks is %s:",chunks)
             return '\n\n'.join([
                 # f'【参考{i+1}】{c["content"][:300]}'
                 f'【参考{i + 1}】{c["content"]}'
                 for i, c in enumerate(chunks)
             ])
         except Exception as e:
-            logging.warning('[决策区] 伦理知识检索异常: %s', e)
+            logger.warning('[决策区] 伦理知识检索异常: %s', e)
             return '（伦理知识检索暂不可用）'
