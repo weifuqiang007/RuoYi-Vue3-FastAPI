@@ -16,7 +16,7 @@ REFLECTION_PROMPT = """你是一位引导反思的社会工作教育者，擅长
 
 学生的实践背景：
 - 情境描述：{scenario_summary}
-- 关键决策：{decision_summary}
+- 当前决策上下文：{decision_context}
 - 历史反思记录（最近2次）：{reflection_history}
 
 反思深度评估规则：
@@ -72,28 +72,30 @@ class ReflectionService:
 
     @classmethod
     async def save(cls, db: AsyncSession, data: ReflectionSaveModel, student_id: int, model_id: int = 1) -> dict:
-        """保存反思文本，带防抖深度评估"""
-        record = await RecordDao.get_by_id(db, data.record_id)
-        if not record:
-            raise ValueError('学习记录不存在')
+        """保存反思文本，带防抖深度评估。按 decision_id 查找或创建反思。"""
+        # 从 decision 反查 record_id 和 scenario_id
+        decision = await DecisionDao.get_by_id(db, data.decision_id)
+        if not decision:
+            raise ValueError('决策记录不存在')
+        record_id = decision.record_id
+        scenario_id = decision.scenario_id
 
-        # 查找或创建 reflection
-        reflection = await ReflectionDao.get_by_record_id(db, data.record_id)
+        # 查找或创建 reflection（按 decision_id 1:1）
+        reflection = await ReflectionDao.get_by_decision_id(db, data.decision_id)
         if not reflection:
-            # 需要关联 scenario
-            scenario = await ScenarioDao.get_by_record_id(db, data.record_id)
-            scenario_id = scenario.scenario_id if scenario else 0
             reflection = EduReflectionData(
-                record_id=data.record_id,
+                record_id=record_id,
+                decision_id=data.decision_id,
                 scenario_id=scenario_id,
                 student_id=student_id,
             )
             reflection = await ReflectionDao.create(db, reflection)
-            # 回填 record
-            record.reflection_id = reflection.reflection_id
-            record.reflection_status = '1'
-            record.update_time = datetime.now()
-            await RecordDao.update(db, record)
+            # 更新 record 反思状态为进行中
+            record = await RecordDao.get_by_id(db, record_id)
+            if record and record.reflection_status != '1':
+                record.reflection_status = '1'
+                record.update_time = datetime.now()
+                await RecordDao.update(db, record)
 
         # 更新内容
         reflection.content = data.content
@@ -120,20 +122,21 @@ class ReflectionService:
         await ReflectionDao.update(db, reflection)
         return {
             'reflection_id': reflection.reflection_id,
+            'decision_id': reflection.decision_id,
             'depth_score': float(reflection.depth_score) if reflection.depth_score else None,
             'depth_level': reflection.depth_level,
         }
 
     @classmethod
     async def generate_questions(cls, db: AsyncSession, reflection_id: int, model_id: int = 1) -> dict:
-        """AI生成结构化提问（核心接口）"""
+        """AI生成结构化提问（核心接口），注入该条决策的完整上下文"""
         reflection = await ReflectionDao.get_by_id(db, reflection_id)
         if not reflection:
             raise ValueError('反思数据不存在')
 
-        # 准备上下文
+        # 准备上下文：注入该条决策的完整上下文
         scenario_summary = await cls._get_scenario_summary(db, reflection.record_id)
-        decision_summary = await cls._get_decision_summary(db, reflection.record_id)
+        decision_context = await cls._get_decision_context(db, reflection.decision_id)
         dialogues = await ReflectionDao.get_dialogues(db, reflection_id)
         reflection_history = '\n'.join([
             f"{'AI' if d.role == 'assistant' else '学生'}：{d.content[:100]}"
@@ -146,14 +149,15 @@ class ReflectionService:
 
         prompt = REFLECTION_PROMPT.format(
             scenario_summary=scenario_summary,
-            decision_summary=decision_summary,
+            decision_context=decision_context,
             reflection_history=reflection_history or '（无历史）',
             reflection_text=reflection.content or '（学生尚未输入反思内容）',
             retrieved_knowledge=retrieved_knowledge or '（暂无相关理论参考）',
         )
 
         from module_learning.service.llm_call import AiCall
-        logger.info('[反思区] 开始调用LLM, reflection_id=%s, model_id=%s', reflection_id, model_id)
+        logger.info('[反思区] 开始调用LLM, reflection_id=%s, decision_id=%s, model_id=%s',
+                    reflection_id, reflection.decision_id, model_id)
         result = await AiCall.call_llm_json(db, model_id, prompt)
         logger.info('[反思区] LLM返回结果: depth_score=%s, depth_level=%s',
                     result.get('depth_score'), result.get('depth_level'))
@@ -195,13 +199,29 @@ class ReflectionService:
 
     @classmethod
     async def confirm(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:
-        """确认反思完成"""
-        reflection = await ReflectionDao.get_by_record_id(db, record_id)
-        if not reflection or not reflection.content:
-            raise ValueError('请先保存反思内容')
-        reflection.status = '1'
-        reflection.update_time = datetime.now()
-        await ReflectionDao.update(db, reflection)
+        """确认反思完成，校验所有决策都有反思内容"""
+        # 获取该 record 下所有决策
+        decisions = await DecisionDao.get_by_record_id(db, record_id)
+        if not decisions:
+            raise ValueError('没有决策记录，请先完成决策区')
+
+        # 检查每个决策是否都有反思
+        missing = []
+        for d in decisions:
+            reflection = await ReflectionDao.get_by_decision_id(db, d.decision_id)
+            if not reflection or not reflection.content:
+                missing.append(d.key_event_desc or f'关键事件{d.key_event_index}')
+
+        if missing:
+            raise ValueError(f'以下关键事件尚未反思：{", ".join(missing)}')
+
+        # 标记所有反思为已确认
+        for d in decisions:
+            reflection = await ReflectionDao.get_by_decision_id(db, d.decision_id)
+            if reflection:
+                reflection.status = '1'
+                reflection.update_time = datetime.now()
+                await ReflectionDao.update(db, reflection)
 
         # 更新学习记录状态
         record = await RecordDao.get_by_id(db, record_id)
@@ -210,7 +230,7 @@ class ReflectionService:
             record.update_time = datetime.now()
             await RecordDao.update(db, record)
 
-        return {'reflection_id': reflection.reflection_id, 'status': 'confirmed'}
+        return {'record_id': record_id, 'status': 'confirmed'}
 
     @classmethod
     async def get_depth(cls, db: AsyncSession, reflection_id: int) -> dict:
@@ -239,15 +259,41 @@ class ReflectionService:
         ]
 
     @classmethod
-    async def get_detail(cls, db: AsyncSession, record_id: int) -> dict | None:
-        """反思区完整数据"""
-        reflection = await ReflectionDao.get_by_record_id(db, record_id)
+    async def get_by_decision(cls, db: AsyncSession, decision_id: int) -> dict | None:
+        """获取单个决策的反思详情"""
+        reflection = await ReflectionDao.get_by_decision_id(db, decision_id)
         if not reflection:
             return None
+        return await cls._reflection_to_dict(db, reflection)
+
+    @classmethod
+    async def get_list_by_record(cls, db: AsyncSession, record_id: int) -> list:
+        """获取 record 下所有反思列表（用于前端 Tabs 展示）"""
+        reflections = await ReflectionDao.get_list_by_record_id(db, record_id)
+        result = []
+        for r in reflections:
+            detail = await cls._reflection_to_dict(db, r)
+            result.append(detail)
+        return result
+
+    @classmethod
+    async def _reflection_to_dict(cls, db: AsyncSession, reflection: EduReflectionData) -> dict:
+        """将反思记录转为前端响应字典"""
+        # 查找关联的关键事件描述
+        key_event_desc = ''
+        if reflection.decision_id:
+            decision = await DecisionDao.get_by_id(db, reflection.decision_id)
+            if decision:
+                key_event_desc = decision.key_event_desc or ''
+
         dialogues = await ReflectionDao.get_dialogues(db, reflection.reflection_id)
         return {
             'reflection_id': reflection.reflection_id,
             'record_id': reflection.record_id,
+            'decision_id': reflection.decision_id,
+            'scenario_id': reflection.scenario_id,
+            'student_id': reflection.student_id,
+            'key_event_desc': key_event_desc,
             'content': reflection.content,
             'depth_level': reflection.depth_level,
             'depth_score': float(reflection.depth_score) if reflection.depth_score else 0.0,
@@ -289,6 +335,7 @@ class ReflectionService:
 
     @classmethod
     async def _get_scenario_summary(cls, db: AsyncSession, record_id: int) -> str:
+        """获取情境摘要"""
         scenario = await ScenarioDao.get_by_record_id(db, record_id)
         if not scenario:
             return '（无情境数据）'
@@ -297,17 +344,31 @@ class ReflectionService:
         return f"场景：{(scenario.description or '')[:200]}...\n核心问题：{', '.join(titles)}"
 
     @classmethod
-    async def _get_decision_summary(cls, db: AsyncSession, record_id: int) -> str:
-        decisions = await DecisionDao.get_by_record_id(db, record_id)
-        if not decisions:
+    async def _get_decision_context(cls, db: AsyncSession, decision_id: int) -> str:
+        """获取单条决策的完整上下文（替代原 _get_decision_summary 聚合方法）"""
+        decision = await DecisionDao.get_by_id(db, decision_id)
+        if not decision:
             return '（无决策记录）'
-        summaries = []
-        for d in decisions[:3]:
-            summaries.append(
-                f"- 节点「{(d.key_event_desc or '')[:30]}」："
-                f"{'介入' if d.is_intervened else '未介入'}，{(d.action_taken or '')[:50]}"
-            )
-        return '\n'.join(summaries)
+
+        lines = [
+            f"关键事件：{decision.key_event_desc or '（未描述）'}",
+            f"是否介入：{'介入' if decision.is_intervened else '未介入'}",
+            f"具体行动：{decision.action_taken or '（未描述）'}",
+            f"行动理由：{decision.reasoning or '（未描述）'}",
+        ]
+        if decision.psychological_state:
+            lines.append(f"心理状态：{decision.psychological_state}")
+        if decision.ethics_analysis:
+            # 从 JSONB 中提取摘要
+            analysis = decision.ethics_analysis
+            if isinstance(analysis, dict):
+                analysis_text = analysis.get('analysis', '')
+                if analysis_text:
+                    lines.append(f"AI伦理分析摘要：{analysis_text[:200]}")
+            elif isinstance(analysis, str):
+                lines.append(f"AI伦理分析：{analysis[:200]}")
+
+        return '\n'.join(lines)
 
     @classmethod
     async def _retrieve_theory_knowledge(cls, db: AsyncSession, reflection: EduReflectionData) -> str:

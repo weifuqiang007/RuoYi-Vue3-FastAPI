@@ -30,9 +30,18 @@ export function getReflectionDepthHistory(reflectionId) {
   })
 }
 
-export function getReflectionDetail(recordId) {
+/** 获取学习记录下所有反思（按决策分 Tab） */
+export function getReflectionList(recordId) {
   return request({
-    url: `/learning/reflection/detail/${recordId}`,
+    url: `/learning/reflection/list/${recordId}`,
+    method: 'get'
+  })
+}
+
+/** 获取单个决策的反思详情 */
+export function getReflectionByDecision(decisionId) {
+  return request({
+    url: `/learning/reflection/detail-by-decision/${decisionId}`,
     method: 'get'
   })
 }
@@ -44,4 +53,3 @@ export function confirmReflection(data) {
     data: data
   })
 }
-

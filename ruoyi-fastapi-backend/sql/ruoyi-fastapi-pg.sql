@@ -1525,3 +1525,14 @@ CREATE TABLE IF NOT EXISTS edu_scenario_dialogue (
 COMMENT ON TABLE edu_scenario_dialogue IS '情境区AI对话记录';
 COMMENT ON COLUMN edu_scenario_dialogue.role IS '发言角色（user 用户 / assistant AI助手）';
 COMMENT ON COLUMN edu_scenario_dialogue.dialogue_type IS '对话类型（analyze首次AI分析 / followup AI追问 / user_reply用户回复）';
+
+
+-- =============================================
+-- V1.5 反思区按决策拆分改造（2026-06-13）
+-- 反思从 record 级别（1:1）改为 decision 级别（1:N）
+-- =============================================
+
+-- edu_reflection_data 新增 decision_id 字段
+ALTER TABLE edu_reflection_data ADD COLUMN IF NOT EXISTS decision_id BIGINT;
+COMMENT ON COLUMN edu_reflection_data.decision_id IS '关联的决策记录ID，每个决策对应一条独立反思，关联edu_decision_data.decision_id';
+CREATE INDEX IF NOT EXISTS idx_reflection_decision ON edu_reflection_data(decision_id);

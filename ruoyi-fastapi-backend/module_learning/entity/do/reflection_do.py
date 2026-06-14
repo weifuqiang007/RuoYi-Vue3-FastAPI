@@ -13,6 +13,7 @@ class EduReflectionData(Base):
 
     reflection_id = Column(BigInteger, primary_key=True, autoincrement=True, comment='反思区数据主键ID')
     record_id = Column(BigInteger, nullable=False, comment='关联的学习记录ID，关联edu_learning_record.record_id')
+    decision_id = Column(BigInteger, comment='关联的决策记录ID，每个决策对应一条独立反思，关联edu_decision_data.decision_id')
     scenario_id = Column(BigInteger, nullable=False, comment='关联的情境区数据ID，用于AI生成提问时回溯情境背景')
     student_id = Column(BigInteger, nullable=False, comment='学生用户ID，关联sys_user.user_id')
     # 反思内容与AI评估

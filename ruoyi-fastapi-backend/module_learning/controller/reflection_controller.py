@@ -25,7 +25,7 @@ class ReflectionController:
 
     @staticmethod
     @reflection_controller.post('/save', summary='保存反思文本')
-    @reflection_controller.put('/save', summary="更新反思文本")
+    @reflection_controller.put('/save', summary='更新反思文本')
     async def save_reflection(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -92,14 +92,25 @@ class ReflectionController:
             return ResponseUtil.failure(msg=str(e))
 
     @staticmethod
-    @reflection_controller.get('/detail/{record_id}', summary='反思区完整数据')
-    async def get_detail(
+    @reflection_controller.get('/list/{record_id}', summary='获取学习记录下所有反思（按决策分Tab）')
+    async def get_list(
         request: Request,
         record_id: int,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     ) -> Response:
-        result = await ReflectionService.get_detail(query_db, record_id)
+        result = await ReflectionService.get_list_by_record(query_db, record_id)
+        return ResponseUtil.success(data=result)
+
+    @staticmethod
+    @reflection_controller.get('/detail-by-decision/{decision_id}', summary='获取单个决策的反思详情')
+    async def get_detail_by_decision(
+        request: Request,
+        decision_id: int,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    ) -> Response:
+        result = await ReflectionService.get_by_decision(query_db, decision_id)
         if not result:
             return ResponseUtil.success(data={})
         return ResponseUtil.success(data=result)

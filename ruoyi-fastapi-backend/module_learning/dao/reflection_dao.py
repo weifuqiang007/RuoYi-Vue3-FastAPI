@@ -20,11 +20,20 @@ class ReflectionDao:
         return result.scalars().first()
 
     @classmethod
-    async def get_by_record_id(cls, db: AsyncSession, record_id: int) -> EduReflectionData | None:
+    async def get_by_decision_id(cls, db: AsyncSession, decision_id: int) -> EduReflectionData | None:
+        """根据决策记录ID查找反思（1:1）"""
+        result = await db.execute(
+            select(EduReflectionData).where(EduReflectionData.decision_id == decision_id)
+        )
+        return result.scalars().first()
+
+    @classmethod
+    async def get_list_by_record_id(cls, db: AsyncSession, record_id: int) -> list:
+        """根据学习记录ID查找所有反思（1:N）"""
         result = await db.execute(
             select(EduReflectionData).where(EduReflectionData.record_id == record_id)
         )
-        return result.scalars().first()
+        return list(result.scalars().all())
 
     @classmethod
     async def update(cls, db: AsyncSession, reflection: EduReflectionData) -> EduReflectionData:
