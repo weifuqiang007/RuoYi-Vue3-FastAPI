@@ -60,8 +60,11 @@
       </el-table-column>
       <el-table-column label="分块数" prop="chunk_count" width="80" align="center" />
       <el-table-column label="创建时间" prop="create_time" width="170" />
-      <el-table-column label="操作" width="120" align="center">
+      <el-table-column label="操作" width="200" align="center">
         <template #default="scope">
+          <el-button link type="primary" icon="View" @click="handleDetail(scope.row)">
+            详情
+          </el-button>
           <el-button link type="primary" icon="Download" @click="handleDownload(scope.row)">
             下载
           </el-button>
@@ -118,6 +121,64 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 分块详情抽屉 -->
+    <el-drawer
+      v-model="chunkDrawerVisible"
+      :title="`分块详情 - ${chunkDrawerDoc?.doc_name || ''}`"
+      direction="rtl"
+      size="60%"
+    >
+      <div v-loading="chunkLoading">
+        <el-empty v-if="!chunkLoading && chunkList.length === 0" description="该文档暂无分块" />
+        <el-table v-else :data="chunkList" border>
+          <el-table-column label="序号" prop="chunk_index" width="70" align="center" />
+          <el-table-column label="内容" min-width="320">
+            <template #default="scope">
+              <div class="chunk-content">{{ scope.row.content }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="字符数" prop="token_count" width="80" align="center" />
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="scope">
+              <el-button link type="primary" icon="Edit" @click="handleEditChunk(scope.row)">
+                修改
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <pagination
+          v-show="chunkTotal > 0"
+          :total="chunkTotal"
+          v-model:page="chunkPageNum"
+          v-model:limit="chunkPageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @pagination="loadChunkPage"
+        />
+      </div>
+    </el-drawer>
+
+    <!-- 修改分块内容对话框 -->
+    <el-dialog title="修改分块内容" v-model="chunkEditVisible" width="640px" append-to-body>
+      <el-form label-width="80px">
+        <el-form-item label="内容">
+          <el-input
+            v-model="chunkEditForm.content"
+            type="textarea"
+            :rows="12"
+            placeholder="请输入分块内容"
+            maxlength="5000"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="chunkEditVisible = false">取 消</el-button>
+        <el-button type="primary" :loading="chunkSaving" @click="submitChunkEdit">
+          确 定
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -125,6 +186,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listAllDocument, uploadDocument, downloadDocument, delDocument } from '@/api/rag/document'
+import { listChunk, updateChunk } from '@/api/rag/chunk'
 import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
 
 const loading = ref(false)
@@ -237,6 +299,65 @@ function handleDelete(row) {
     .catch(() => {})
 }
 
+// ── 分块详情 ──
+const chunkDrawerVisible = ref(false)
+const chunkDrawerDoc = ref(null)
+const chunkList = ref([])
+const chunkLoading = ref(false)
+const chunkTotal = ref(0)
+const chunkPageNum = ref(1)
+const chunkPageSize = ref(20)
+
+const chunkEditVisible = ref(false)
+const chunkEditForm = ref({ chunk_id: null, content: '' })
+const chunkSaving = ref(false)
+
+async function loadChunkPage() {
+  if (!chunkDrawerDoc.value) return
+  chunkLoading.value = true
+  try {
+    const res = await listChunk(chunkDrawerDoc.value.doc_id, chunkPageNum.value, chunkPageSize.value)
+    chunkList.value = res.data?.rows || []
+    chunkTotal.value = res.data?.total || 0
+  } finally {
+    chunkLoading.value = false
+  }
+}
+
+async function handleDetail(row) {
+  chunkDrawerDoc.value = row
+  chunkDrawerVisible.value = true
+  chunkList.value = []
+  chunkTotal.value = 0
+  chunkPageNum.value = 1
+  await loadChunkPage()
+}
+
+function handleEditChunk(chunk) {
+  chunkEditForm.value = { chunk_id: chunk.chunk_id, content: chunk.content }
+  chunkEditVisible.value = true
+}
+
+async function submitChunkEdit() {
+  if (!chunkEditForm.value.content?.trim()) {
+    ElMessage.warning('分块内容不能为空')
+    return
+  }
+  chunkSaving.value = true
+  try {
+    await updateChunk({
+      chunk_id: chunkEditForm.value.chunk_id,
+      content: chunkEditForm.value.content
+    })
+    ElMessage.success('修改成功，已重新向量化')
+    chunkEditVisible.value = false
+    // 刷新当前页分块列表（保持页码）
+    await loadChunkPage()
+  } finally {
+    chunkSaving.value = false
+  }
+}
+
 function parseStatusLabel(s) {
   const key = String(s ?? '')
   return { '0': '待处理', '1': '解析中', '2': '完成', '9': '失败' }[key] || '未知'
@@ -284,4 +405,14 @@ onMounted(async () => {
   await getList()
 })
 </script>
+
+<style scoped>
+.chunk-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+  line-height: 1.6;
+}
+</style>
 

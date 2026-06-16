@@ -20,6 +20,7 @@
             :reflection-data="item.reflectionData"
             @saved="onTabSaved"
             @guidance-generated="onTabGuidanceGenerated"
+            @depth-loaded="onTabDepthLoaded"
           />
         </el-tab-pane>
       </el-tabs>
@@ -182,6 +183,12 @@ function onTabGuidanceGenerated({ decisionId, depthScore, depthLevel, theories }
   tabStates.value[decisionId].depthScore = depthScore
   tabStates.value[decisionId].depthLevel = depthLevel
   tabStates.value[decisionId].theories = theories || []
+}
+
+/** 子组件加载/刷新深度历史后上报，填入 tabStates 供底部 DepthChart 聚合 */
+function onTabDepthLoaded({ decisionId, depthHistory: history }) {
+  if (!tabStates.value[decisionId]) return
+  tabStates.value[decisionId].depthHistory = Array.isArray(history) ? history : []
 }
 
 async function confirm() {

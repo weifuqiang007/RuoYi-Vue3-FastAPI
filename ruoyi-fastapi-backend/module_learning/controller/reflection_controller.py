@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.aspect.db_seesion import DBSessionDependency
@@ -51,6 +52,18 @@ class ReflectionController:
             return ResponseUtil.success(data=result)
         except Exception as e:
             return ResponseUtil.failure(msg=str(e))
+
+    @staticmethod
+    @reflection_controller.post('/questions/stream', summary='AI流式生成理论指导')
+    async def generate_questions_stream(
+        request: Request,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        data: ReflectionQuestionModel,
+    ) -> StreamingResponse:
+        """流式生成理论指导：逐字回显可读内容，结束后返回结构化结果并落库"""
+        stream = ReflectionService.generate_questions_stream(query_db, data.reflection_id)
+        return StreamingResponse(content=stream, media_type='text/event-stream')
 
     @staticmethod
     @reflection_controller.get('/depth/{reflection_id}', summary='获取深度评估')

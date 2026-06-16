@@ -37,6 +37,15 @@ class KnowledgeBaseDao:
             update(RagKnowledgeBase).where(RagKnowledgeBase.kb_id == kb_id).values(**kwargs)
         )
 
+    @classmethod
+    async def increment_doc_count(cls, db: AsyncSession, kb_id: int, delta: int = 1):
+        """原子地增减知识库文档数量（用 SQL 表达式自增，避免读-改-写并发问题）"""
+        await db.execute(
+            update(RagKnowledgeBase)
+            .where(RagKnowledgeBase.kb_id == kb_id)
+            .values(doc_count=RagKnowledgeBase.doc_count + delta)
+        )
+
 
     @classmethod
     async def delete_by_id(cls, db:AsyncSession, kb_id: int):

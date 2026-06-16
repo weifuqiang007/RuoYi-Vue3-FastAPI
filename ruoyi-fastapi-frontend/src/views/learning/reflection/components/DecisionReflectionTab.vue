@@ -25,6 +25,12 @@
       </el-button>
     </div>
 
+    <!-- 流式生成逐字预览 -->
+    <div v-if="generating || streamText" class="stream-preview">
+      <div class="section-title">📖 AI 正在生成理论指导...</div>
+      <div class="stream-text">{{ displayStreamText }}<span class="cursor">▋</span></div>
+    </div>
+
     <!-- AI 理论指导展示 -->
     <div v-if="latestGuidance && hasGuidanceContent(latestGuidance)" class="inline-guidance">
       <el-divider content-position="left">AI 理论指导</el-divider>
@@ -78,7 +84,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, MagicStick } from '@element-plus/icons-vue'
-import { saveReflection, generateReflectionQuestions, getReflectionDepthHistory } from '@/api/learning/reflection'
+import { saveReflection, generateReflectionQuestions, generateReflectionQuestionsStream, getReflectionDepthHistory } from '@/api/learning/reflection'
 import ReflectionRoundCard from './ReflectionRoundCard.vue'
 
 const props = defineProps({
@@ -88,13 +94,14 @@ const props = defineProps({
   reflectionData: { type: Object, default: () => null }
 })
 
-const emit = defineEmits(['saved', 'guidance-generated'])
+const emit = defineEmits(['saved', 'guidance-generated', 'depth-loaded'])
 
 const reflectionId = ref(null)
 const content = ref('')
 const latestGuidance = ref(null)
 const dialogues = ref([])
 const depthHistory = ref([])
+const streamText = ref('')   // 流式逐字预览文本
 
 const saving = ref(false)
 const generating = ref(false)
@@ -110,6 +117,13 @@ const historyRounds = computed(() => {
       createTime: d.create_time ?? d.createTime ?? '',
       index: idx,
     }))
+})
+
+/** 流式预览：剥离结尾的 ```json 结构化块，只展示可读 Markdown 部分 */
+const displayStreamText = computed(() => {
+  const text = streamText.value || ''
+  const idx = text.indexOf('```json')
+  return idx >= 0 ? text.slice(0, idx).trim() : text.trim()
 })
 
 // 初始化：从父组件传入的 reflectionData 加载
@@ -167,10 +181,12 @@ function formatQuestion(q) {
 async function loadDepthHistory() {
   if (!reflectionId.value) {
     depthHistory.value = []
+    emit('depth-loaded', { decisionId: props.decisionId, depthHistory: [] })
     return
   }
   const res = await getReflectionDepthHistory(reflectionId.value)
   depthHistory.value = Array.isArray(res.data) ? res.data : []
+  emit('depth-loaded', { decisionId: props.decisionId, depthHistory: depthHistory.value })
 }
 
 async function save() {
@@ -208,21 +224,39 @@ async function generateGuidance() {
     return
   }
   generating.value = true
+  streamText.value = ''
+  latestGuidance.value = null
   try {
-    const res = await generateReflectionQuestions({ reflection_id: reflectionId.value })
-    const data = res.data || {}
-    latestGuidance.value = data
-
-    // 刷新对话历史
-    const detailRes = await getReflectionDepthHistory(reflectionId.value)
-    depthHistory.value = Array.isArray(detailRes.data) ? detailRes.data : []
-
-    emit('guidance-generated', {
-      decisionId: props.decisionId,
-      depthScore: Number(data.depth_score ?? 0),
-      depthLevel: data.depth_level ?? '',
-      theories: data.theory_guidance || data.theories || [],
-    })
+    await generateReflectionQuestionsStream(
+      { reflection_id: reflectionId.value },
+      {
+        onStatus: () => {},
+        onContent: (chunk) => {
+          // 逐字追加，剥离结尾的 ```json 结构化块，只展示可读部分
+          streamText.value += chunk
+        },
+        onResult: async (data) => {
+          latestGuidance.value = data
+          streamText.value = ''
+          // 刷新深度历史并上报父组件
+          await loadDepthHistory()
+          emit('guidance-generated', {
+            decisionId: props.decisionId,
+            depthScore: Number(data.depth_score ?? 0),
+            depthLevel: data.depth_level ?? '',
+            theories: data.theory_guidance || data.theories || [],
+          })
+        },
+        onError: (msg) => {
+          ElMessage.error(msg || '生成失败')
+        }
+      }
+    )
+  } catch (e) {
+    // 流式中途异常（如已通过 onError 提示），这里兜底
+    if (!latestGuidance.value) {
+      ElMessage.error('生成失败，请重试')
+    }
   } finally {
     generating.value = false
   }
@@ -247,6 +281,28 @@ defineExpose({
 .tab-actions {
   display: flex;
   gap: 8px;
+}
+.stream-preview {
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.stream-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.7;
+  max-height: 320px;
+  overflow: auto;
+}
+.stream-text .cursor {
+  animation: blink 1s steps(1) infinite;
+  color: #409eff;
+}
+@keyframes blink {
+  50% { opacity: 0; }
 }
 .inline-guidance .section {
   margin-bottom: 14px;

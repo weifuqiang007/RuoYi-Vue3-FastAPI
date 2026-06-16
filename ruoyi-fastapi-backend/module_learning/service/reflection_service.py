@@ -1,8 +1,10 @@
 import json
+import re
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from utils.llm_json_parser import parse_llm_json
 from module_learning.dao.reflection_dao import ReflectionDao
 from module_learning.dao.record_dao import RecordDao
 from module_learning.dao.scenario_dao import ScenarioDao
@@ -68,6 +70,54 @@ QUICK_EVAL_PROMPT = """评估以下反思文本的深度层次，只需输出 JS
 EVALUATE_THROTTLE_SECONDS = 30
 
 
+# 流式版 Prompt：先输出可读 Markdown（供逐字回显），最后以 ```json 代码块输出结构化结果（供解析存储）
+REFLECTION_STREAM_PROMPT = """你是一位引导反思的社会工作教育者，擅长结合专业理论指导学生从"描述经历"走向"反身性反思"。
+
+学生的实践背景：
+- 情境描述：{scenario_summary}
+- 当前决策上下文：{decision_context}
+- 历史反思记录（最近2次）：{reflection_history}
+
+反思深度评估规则：
+- 描述性（0.20-0.40）：仅复述事件经过和个人感受
+- 分析性（0.41-0.70）：开始分析事件原因、互动模式、策略选择
+- 反身性（0.71-1.00）：审视自身价值观、立场、权力关系对实践的影响
+
+当前学生的反思文本：
+{reflection_text}
+
+相关专业理论参考（来自知识库检索）：
+{retrieved_knowledge}
+
+任务：
+1. 评估当前反思的深度（给出分数和等级）
+2. 从上述理论参考中选取 1-2 个最相关的理论，给出具体的指导意见（说明为何相关 + 基于该理论的具体建议）
+3. 综合给出整体反思方向建议
+4. 根据当前深度，生成 2-3 个推动反思深化的追问
+
+输出要求（重要）：
+先输出**可读的 Markdown**（给学生看的理论指导），包含：深度评估、关联理论（理论名/来源/关联/建议）、反思方向、追问；
+最后**另起一行**，以下面的 JSON 代码块结尾（用于系统解析，不要省略）：
+```json
+{{
+  "depth_score": 0.65,
+  "depth_level": "analytical",
+  "theory_guidance": [
+    {{
+      "theory_name": "赋权理论",
+      "theory_source": "Solomon (1976)",
+      "relevance": "该理论与学生反思中提到的...直接相关",
+      "suggestion": "建议学生从...角度深化反思"
+    }}
+  ],
+  "reflection_direction": "基于以上理论，建议从...角度继续反思",
+  "questions": [
+    {{"level": "reflexive", "question": "追问内容", "purpose": "引导目的"}}
+  ]
+}}
+```"""
+
+
 class ReflectionService:
 
     @classmethod
@@ -90,16 +140,29 @@ class ReflectionService:
                 student_id=student_id,
             )
             reflection = await ReflectionDao.create(db, reflection)
-            # 更新 record 反思状态为进行中
+            # 首次保存：回填 record.reflection_id（advance_stage 前置校验依赖此字段）
+            # 并标记反思进行中
             record = await RecordDao.get_by_id(db, record_id)
-            if record and record.reflection_status != '1':
-                record.reflection_status = '1'
+            if record:
+                record.reflection_id = reflection.reflection_id
+                if record.reflection_status != '1':
+                    record.reflection_status = '1'
                 record.update_time = datetime.now()
                 await RecordDao.update(db, record)
 
         # 更新内容
         reflection.content = data.content
         reflection.version = (reflection.version or 0) + 1
+
+        # 兜底回填 record.reflection_id：历史数据可能为空（advance_stage 前置校验依赖此字段）
+        if reflection.reflection_id:
+            record = await RecordDao.get_by_id(db, record_id)
+            if record and not record.reflection_id:
+                record.reflection_id = reflection.reflection_id
+                if record.reflection_status == '0':
+                    record.reflection_status = '1'
+                record.update_time = datetime.now()
+                await RecordDao.update(db, record)
 
         # 防抖深度评估
         should_evaluate = await cls._should_evaluate(db, reflection.reflection_id)
@@ -162,7 +225,114 @@ class ReflectionService:
         logger.info('[反思区] LLM返回结果: depth_score=%s, depth_level=%s',
                     result.get('depth_score'), result.get('depth_level'))
 
-        # 保存 AI 对话记录
+        await cls._persist_guidance(db, reflection, result)
+        return result
+
+    @classmethod
+    async def generate_questions_stream(cls, db: AsyncSession, reflection_id: int, model_id: int = 1):
+        """
+        流式生成理论指导（SSE）。
+        流程：校验 → yield status → AiCall.call_llm_stream 逐字转发 → 结束后解析为结构化结果并落库 → yield result。
+        兼容现有前端流式约定：消息类型 status / content / result / error。
+        """
+        reflection = await ReflectionDao.get_by_id(db, reflection_id)
+        if not reflection:
+            yield json.dumps({'type': 'error', 'message': '反思数据不存在'}, ensure_ascii=False) + '\n'
+            return
+
+        # 准备上下文（与非流式一致）
+        scenario_summary = await cls._get_scenario_summary(db, reflection.record_id)
+        decision_context = await cls._get_decision_context(db, reflection.decision_id)
+        dialogues = await ReflectionDao.get_dialogues(db, reflection_id)
+        reflection_history = '\n'.join([
+            f"{'AI' if d.role == 'assistant' else '学生'}：{d.content[:100]}"
+            for d in dialogues[-4:]
+        ]) if dialogues else '（无历史对话）'
+        retrieved_knowledge = await cls._retrieve_theory_knowledge(db, reflection)
+
+        prompt = REFLECTION_STREAM_PROMPT.format(
+            scenario_summary=scenario_summary,
+            decision_context=decision_context,
+            reflection_history=reflection_history or '（无历史）',
+            reflection_text=reflection.content or '（学生尚未输入反思内容）',
+            retrieved_knowledge=retrieved_knowledge or '（暂无相关理论参考）',
+        )
+
+        yield json.dumps({'type': 'status', 'message': 'AI 正在结合理论生成指导...'}, ensure_ascii=False) + '\n'
+
+        from module_learning.service.llm_call import AiCall
+        full_text = ''
+        try:
+            async for raw in AiCall.call_llm_stream(db, model_id, prompt):
+                try:
+                    chunk = json.loads(raw)
+                except Exception:
+                    continue
+                ctype = chunk.get('type')
+                if ctype == 'content' and chunk.get('content'):
+                    full_text += chunk['content']
+                    yield json.dumps({'type': 'content', 'content': chunk['content']}, ensure_ascii=False) + '\n'
+                elif ctype == 'error':
+                    yield json.dumps({'type': 'error', 'message': chunk.get('error', '生成失败')}, ensure_ascii=False) + '\n'
+                    return
+        except Exception as e:
+            logger.error('[反思区] 流式生成异常: %s', e, exc_info=True)
+            yield json.dumps({'type': 'error', 'message': f'生成失败：{e}'}, ensure_ascii=False) + '\n'
+            return
+
+        # 流结束后：解析为结构化结果并落库
+        result = cls._parse_streamed_guidance(full_text)
+        try:
+            await cls._persist_guidance(db, reflection, result)
+        except Exception as e:
+            logger.error('[反思区] 流式结果落库失败: %s', e, exc_info=True)
+            yield json.dumps({'type': 'error', 'message': '生成成功但保存失败，请重试'}, ensure_ascii=False) + '\n'
+            return
+
+        yield json.dumps({'type': 'result', 'data': result}, ensure_ascii=False) + '\n'
+
+    @classmethod
+    def _parse_streamed_guidance(cls, full_text: str) -> dict:
+        """
+        解析流式输出为结构化结果。
+        优先级：① 提取结尾 ```json 代码块 ② 整体 parse_llm_json ③ 兜底（保留文本为 reflection_direction）。
+        """
+        # ① 优先取最后一个 ```json 代码块（用 ``` 围栏作边界，不可用 \{.*?\}——
+        #    非贪婪会停在第一个 } 处，把含嵌套对象的 JSON 截断成非法片段）
+        blocks = re.findall(r'```json\s*(.*?)```', full_text, re.DOTALL)
+        candidate = blocks[-1].strip() if blocks else full_text
+        try:
+            parsed = parse_llm_json(candidate)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+        # ② 整体尝试
+        try:
+            parsed = parse_llm_json(full_text)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+        # ③ 兜底：抽取分数，正文作为方向说明，保证不报错
+        score_match = re.search(r'([0-9]*\.?[0-9]+)', full_text)
+        score = float(score_match.group(1)) if score_match else 0.3
+        if score > 1:
+            score = score / 100 if score <= 100 else 0.3
+        level = 'reflexive' if score >= 0.71 else ('analytical' if score >= 0.41 else 'descriptive')
+        return {
+            'depth_score': score,
+            'depth_level': level,
+            'theory_guidance': [],
+            'reflection_direction': full_text.strip()[:500] or '（未生成可读内容）',
+            'questions': [],
+        }
+
+    @classmethod
+    async def _persist_guidance(cls, db: AsyncSession, reflection: EduReflectionData, result: dict):
+        """将 AI 理论指导结果落库（对话记录 + 反思数据 + 深度历史）。非流式与流式共用。"""
         old_score = float(reflection.depth_score) if reflection.depth_score else 0.0
         new_score = result.get('depth_score', old_score)
 
@@ -171,7 +341,7 @@ class ReflectionService:
         theories = result.get('theories', [])
 
         await ReflectionDao.add_dialogue(db, EduReflectionDialogue(
-            reflection_id=reflection_id,
+            reflection_id=reflection.reflection_id,
             role='assistant',
             content=json.dumps(result, ensure_ascii=False),
             question_level=result.get('depth_level', ''),
@@ -180,22 +350,18 @@ class ReflectionService:
             linked_theories=theory_guidance if theory_guidance else theories,
         ))
 
-        # 更新反思数据
         reflection.depth_score = new_score
         reflection.depth_level = result.get('depth_level', reflection.depth_level)
         reflection.linked_theories = theory_guidance if theory_guidance else theories
         reflection.update_time = datetime.now()
         await ReflectionDao.update(db, reflection)
 
-        # 记录深度历史
         await ReflectionDao.add_depth_history(db, EduReflectionDepthHistory(
-            reflection_id=reflection_id,
+            reflection_id=reflection.reflection_id,
             depth_score=new_score,
             depth_level=result.get('depth_level', ''),
             trigger_type='ai_question',
         ))
-
-        return result
 
     @classmethod
     async def confirm(cls, db: AsyncSession, record_id: int, user_id: int) -> dict:

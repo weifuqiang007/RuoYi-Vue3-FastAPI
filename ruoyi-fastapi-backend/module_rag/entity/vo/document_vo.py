@@ -1,5 +1,7 @@
 # module_rag/entity/vo/document_vo.py
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_serializer
 
 
 class DocumentUploadModel(BaseModel):
@@ -18,7 +20,13 @@ class DocumentResponseModel(BaseModel):
     parse_status: str = '0'
     embed_status: str = '0'
     error_msg: str | None = None
-    create_time: str | None = None
+    create_time: datetime | None = None
 
     class Config:
         from_attributes = True
+
+    @field_serializer('create_time')
+    @classmethod
+    def serialize_create_time(cls, v: datetime | None) -> str | None:
+        """将 datetime 序列化为字符串"""
+        return str(v) if v else None
