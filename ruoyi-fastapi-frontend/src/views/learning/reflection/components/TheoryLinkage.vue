@@ -7,6 +7,9 @@
         <div class="theory-name">
           {{ getTheoryName(t) }}
           <span v-if="getTheorySource(t)" class="theory-source">（{{ getTheorySource(t) }}）</span>
+          <span v-if="getSources(t)" class="theory-tags">
+            <el-tag v-for="(src, sidx) in getSources(t)" :key="sidx" size="small" type="info">{{ src }}</el-tag>
+          </span>
         </div>
         <div v-if="getRelevance(t)" class="theory-relevance">
           <strong>关联说明：</strong>{{ getRelevance(t) }}
@@ -51,6 +54,11 @@ function getDescription(t) {
   if (typeof t === 'string') return ''
   return t?.description || ''
 }
+
+function getSources(t) {
+  if (typeof t === 'string') return []
+  return Array.isArray(t?.sources) ? t.sources : []
+}
 </script>
 
 <style scoped>
@@ -79,6 +87,12 @@ function getDescription(t) {
   color: #909399;
   font-weight: normal;
   font-size: 12px;
+}
+.theory-tags {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 8px;
+  flex-wrap: wrap;
 }
 .theory-relevance, .theory-suggestion {
   font-size: 13px;

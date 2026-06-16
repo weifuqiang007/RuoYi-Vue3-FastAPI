@@ -405,13 +405,24 @@ async function handleStart(row) {
     ElMessage.warning('任务ID缺失，无法开始')
     return
   }
-  const res = await startRecord(row.task_id)
-  const recordId = res?.data?.record_id ?? res?.data?.recordId ?? res?.data?.record_id ?? res?.data
-  if (!recordId) {
-    ElMessage.success('已开始任务')
-    return
+  try {
+    const res = await startRecord(row.task_id)
+    const recordId = res?.data?.record_id ?? res?.data?.recordId ?? res?.data?.record_id ?? res?.data
+    if (!recordId) {
+      ElMessage.success('已开始任务')
+      return
+    }
+    // 跳转到学习区（保护性捕获路由异常）
+    try {
+      await router.push({ path: '/learning/zone', query: { record_id: recordId } })
+    } catch (rerr) {
+      console.error('router.push error:', rerr)
+      ElMessage.error('跳转学习区失败，请手动打开学习区')
+    }
+  } catch (err) {
+    console.error('startRecord error:', err)
+    ElMessage.error(err?.message || '开始任务失败，请重试')
   }
-  await router.push({ path: '/learning/zone', query: { record_id: recordId } })
 }
 
 async function loadKbOptions() {

@@ -33,10 +33,26 @@
       <div v-if="parsedContent" class="content-text">
         <div v-if="typeof parsedContent === 'string'" v-html="formatText(parsedContent)" />
         <div v-else>
+          <!-- 学生回应（若存在） -->
+          <div v-if="props.userContent || renderedUserContent" class="section student-section">
+            <div class="section-title">👤 学生回应</div>
+            <div class="student-content markdown-content" v-html="renderedUserContent"></div>
+          </div>
           <!-- 结构化内容展示 -->
-          <div v-if="parsedContent.reflection_direction" class="section">
-            <div class="section-title">💡 反思方向</div>
-            <div class="direction-text">{{ parsedContent.reflection_direction }}</div>
+          <div v-if="parsedContent.reflection_direction" class="section ai-answer">
+            <div class="section-title">🤖 AI 解答 / 反思方向</div>
+            <div class="direction-text markdown-content" v-html="renderedMarkdown"></div>
+          </div>
+
+          <!-- 深度评估小卡片 -->
+          <div v-if="parsedContent.depth_score !== undefined || parsedContent.depth_level" class="section depth-eval">
+            <div class="section-title">🔍 反思深度评估</div>
+            <div class="depth-eval-card">
+              <div class="eval-header"><span>维度</span><span>评估结果</span></div>
+              <div class="eval-row"><span class="label">深度分数</span><span class="value">{{ parsedContent.depth_score ?? parsedContent.depthScore ?? '-' }}</span></div>
+              <div class="eval-row"><span class="label">深度等级</span><span class="value">{{ parsedContent.depth_level ?? parsedContent.depthLevel ?? '-' }}</span></div>
+              <div class="eval-row" v-if="parsedContent.judgement || parsedContent.judgment || parsedContent.reason"><span class="label">判断依据</span><span class="value">{{ parsedContent.judgement || parsedContent.judgment || parsedContent.reason || '-' }}</span></div>
+            </div>
           </div>
           <div v-if="theories.length" class="section">
             <div class="section-title">📖 关联理论</div>
@@ -65,11 +81,14 @@
 
 <script setup>
 import { Right } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { marked } from 'marked'
 
 const props = defineProps({
   roundIndex: { type: Number, default: 0 },
   isCurrent: { type: Boolean, default: false },
   dialogueContent: { type: [String, Object], default: '' },
+  userContent: { type: [String, Object], default: null },
   depthScoreAfter: { type: Number, default: null },
   depthScoreBefore: { type: Number, default: null },
   time: { type: String, default: '' }
@@ -119,6 +138,20 @@ function formatQuestion(q) {
   if (typeof q === 'string') return q
   return q?.question || q?.content || JSON.stringify(q)
 }
+
+const renderedMarkdown = computed(() => {
+  const d = parsedContent.value
+  if (!d || typeof d === 'string') return ''
+  const text = d.reflection_direction
+  return text ? marked.parse(text) : ''
+})
+
+const renderedUserContent = computed(() => {
+  const u = props.userContent
+  if (!u) return ''
+  if (typeof u === 'object') return marked.parse(JSON.stringify(u, null, 2))
+  return marked.parse(String(u))
+})
 </script>
 
 <style scoped>
@@ -223,6 +256,95 @@ function formatQuestion(q) {
   font-size: 13px;
   color: #606266;
   line-height: 1.6;
+  white-space: pre-wrap;
+}
+.student-content {
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #303133;
+  line-height: 1.6;
+  border: 1px solid #eef3f8;
+}
+.ai-answer .direction-text {
+  background: linear-gradient(90deg,#e6f2ff,#ecf5ff);
+}
+.depth-eval .depth-eval-card {
+  background: #fff;
+  border: 1px solid #e6eef6;
+  border-radius: 6px;
+  padding: 10px;
+}
+.depth-eval .eval-header,
+.depth-eval .eval-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  align-items: center;
+  padding: 10px 0;
+}
+.depth-eval .eval-header {
+  font-weight: 700;
+  color: #606266;
+  border-bottom: 1px solid #f0f6fb;
+}
+.depth-eval .eval-row {
+  border-bottom: 1px dashed #f0f6fb;
+}
+.depth-eval .eval-row:last-child {
+  border-bottom: none;
+}
+.depth-eval .label {
+  color: #909399;
+}
+.depth-eval .value {
+  font-weight: 600;
+  color: #303133;
+  word-break: break-word;
+}
+.markdown-content {
+  word-break: break-word;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-weight: 600;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.markdown-content h1 { font-size: 16px; }
+.markdown-content h2 { font-size: 15px; }
+.markdown-content h3 { font-size: 14px; }
+.markdown-content p {
+  margin: 6px 0;
+}
+.markdown-content strong {
+  font-weight: 600;
+  color: #303133;
+}
+.markdown-content em {
+  font-style: italic;
+}
+.markdown-content code {
+  background: #f5f7fa;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 12px;
+}
+.markdown-content blockquote {
+  border-left: 3px solid #409eff;
+  padding-left: 10px;
+  margin-left: 0;
+  color: #909399;
+}
+.markdown-content ul,
+.markdown-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.markdown-content li {
+  margin: 4px 0;
 }
 .question-item {
   margin-bottom: 8px;

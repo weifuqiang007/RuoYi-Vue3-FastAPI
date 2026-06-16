@@ -1,29 +1,35 @@
 <template>
   <div class="decision-reflection-tab">
-    <!-- 反思编辑器 -->
-    <el-input
-      v-model="content"
-      type="textarea"
-      :rows="8"
-      placeholder="针对这个关键事件进行反身性反思：发生了什么？为什么？你在其中的立场、价值与关系是什么？"
-      class="mb12"
-    />
+    <el-card shadow="never" class="content-card mb12">
+      <div class="current-key-event">
+        <div class="current-key-event-title">当前关键事件</div>
+        <div class="current-key-event-desc">{{ keyEventDesc || '未命名关键事件' }}</div>
+      </div>
+      <div class="editor-section">
+        <el-input
+          v-model="content"
+          type="textarea"
+          :rows="8"
+          placeholder="针对这个关键事件进行反身性反思：发生了什么？为什么？你在其中的立场、价值与关系是什么？"
+          class="mb12"
+        />
 
-    <!-- 操作按钮 -->
-    <div class="tab-actions mb12">
-      <el-button :loading="saving" size="small" @click="save">
-        <el-icon><Check /></el-icon> 保存反思
-      </el-button>
-      <el-button
-        type="primary"
-        size="small"
-        :loading="generating"
-        :disabled="!reflectionId"
-        @click="generateGuidance"
-      >
-        <el-icon><MagicStick /></el-icon> 生成理论指导
-      </el-button>
-    </div>
+        <div class="tab-actions mb12">
+          <el-button :loading="saving" size="small" @click="save">
+            <el-icon><Check /></el-icon> 保存反思
+          </el-button>
+          <el-button
+            type="primary"
+            size="small"
+            :loading="generating"
+            :disabled="!reflectionId"
+            @click="generateGuidance"
+          >
+            <el-icon><MagicStick /></el-icon> 生成理论指导
+          </el-button>
+        </div>
+      </div>
+    </el-card>
 
     <!-- 流式生成逐字预览 -->
     <div v-if="generating || streamText" class="stream-preview">
@@ -31,52 +37,68 @@
       <div class="stream-text">{{ displayStreamText }}<span class="cursor">▋</span></div>
     </div>
 
-    <!-- AI 理论指导展示 -->
-    <div v-if="latestGuidance && hasGuidanceContent(latestGuidance)" class="inline-guidance">
-      <el-divider content-position="left">AI 理论指导</el-divider>
+    <el-card shadow="never" class="content-card mb12">
+      <div class="guidance-header">AI 理论指导</div>
 
-      <div v-if="getGuidanceTheories(latestGuidance).length" class="section">
-        <div class="section-title">📖 关联理论</div>
-        <div v-for="(g, idx) in getGuidanceTheories(latestGuidance)" :key="idx" class="theory-item">
-          <div class="theory-name">
-            {{ g.theory_name || g.name || '理论' }}
-            <span v-if="g.theory_source" class="theory-source">（{{ g.theory_source }}）</span>
+      <div v-if="generating || streamText" class="stream-preview">
+        <div class="section-title">📖 AI 正在生成理论指导...</div>
+        <div class="stream-text">{{ displayStreamText }}<span class="cursor">▋</span></div>
+      </div>
+
+      <div v-else>
+        <div v-if="hasGuidanceContent(latestGuidance)" class="inline-guidance">
+          <div v-if="getGuidanceTheories(latestGuidance).length" class="section">
+            <div class="section-title">📖 关联理论</div>
+            <div v-for="(g, idx) in getGuidanceTheories(latestGuidance)" :key="idx" class="theory-item">
+              <div class="theory-name">
+                {{ g.theory_name || g.name || '理论' }}
+                <span v-if="g.theory_source" class="theory-source">（{{ g.theory_source }}）</span>
+              </div>
+              <div v-if="g.relevance" class="theory-relevance">
+                <strong>关联：</strong>{{ g.relevance }}
+              </div>
+              <div v-if="g.suggestion" class="theory-suggestion">
+                <strong>建议：</strong>{{ g.suggestion }}
+              </div>
+            </div>
           </div>
-          <div v-if="g.relevance" class="theory-relevance">
-            <strong>关联：</strong>{{ g.relevance }}
+
+          <div v-if="latestGuidance?.reflection_direction" class="section">
+            <div class="section-title">💡 反思方向</div>
+            <div class="direction-text markdown-content" v-html="renderedMarkdown"></div>
           </div>
-          <div v-if="g.suggestion" class="theory-suggestion">
-            <strong>建议：</strong>{{ g.suggestion }}
+
+          <div v-if="getGuidanceQuestions(latestGuidance).length" class="section">
+            <div class="section-title">📌 追问</div>
+            <div v-for="(q, idx) in getGuidanceQuestions(latestGuidance)" :key="idx" class="question-item">
+              <el-tag size="small" type="primary">追问 {{ idx + 1 }}</el-tag>
+              <div class="question-text">{{ formatQuestion(q) }}</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="latestGuidance.reflection_direction" class="section">
-        <div class="section-title">💡 反思方向</div>
-        <div class="direction-text">{{ latestGuidance.reflection_direction }}</div>
+        <div v-else class="empty-guidance">暂无 AI 理论指导，点击上方按钮生成</div>
       </div>
+    </el-card>
 
-      <div v-if="getGuidanceQuestions(latestGuidance).length" class="section">
-        <div class="section-title">📌 追问</div>
-        <div v-for="(q, idx) in getGuidanceQuestions(latestGuidance)" :key="idx" class="question-item">
-          <el-tag size="small" type="primary">追问 {{ idx + 1 }}</el-tag>
-          <div class="question-text">{{ formatQuestion(q) }}</div>
-        </div>
+    <el-card shadow="never" class="content-card">
+      <div class="guidance-header">历史轮次</div>
+      <div v-if="historyRounds.length">
+        <ReflectionRoundCard
+          v-for="(round, idx) in historyRounds"
+          :key="'round-' + idx"
+          :round-index="idx"
+          :is-current="false"
+          :dialogue-content="round.content"
+          :user-content="round.userContent"
+          :depth-score-after="round.depthScoreAfter"
+          :depth-score-before="round.depthScoreBefore"
+          :time="round.createTime"
+          class="mb8"
+        />
       </div>
-    </div>
-
-    <!-- 历史轮次（只读） -->
-    <ReflectionRoundCard
-      v-for="(round, idx) in historyRounds"
-      :key="'round-' + idx"
-      :round-index="idx"
-      :is-current="false"
-      :dialogue-content="round.content"
-      :depth-score-after="round.depthScoreAfter"
-      :depth-score-before="round.depthScoreBefore"
-      :time="round.createTime"
-      class="mb8"
-    />
+      <div v-else class="empty-guidance">暂无历史轮次</div>
+    </el-card>
   </div>
 </template>
 
@@ -84,6 +106,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, MagicStick } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import { saveReflection, generateReflectionQuestions, generateReflectionQuestionsStream, getReflectionDepthHistory } from '@/api/learning/reflection'
 import ReflectionRoundCard from './ReflectionRoundCard.vue'
 
@@ -116,6 +139,15 @@ const historyRounds = computed(() => {
       depthScoreBefore: d.depth_score_before ?? d.depthScoreBefore ?? null,
       createTime: d.create_time ?? d.createTime ?? '',
       index: idx,
+      // 尝试寻找此 assistant 对话之前最近的一条 student/user 发言作为对应的学生回应
+      userContent: (function() {
+        const all = dialogues.value
+        const pos = all.findIndex(it => it === d)
+        for (let i = pos - 1; i >= 0; i--) {
+          if (all[i] && all[i].role === 'user') return all[i].content
+        }
+        return null
+      })()
     }))
 })
 
@@ -172,6 +204,11 @@ function hasGuidanceContent(data) {
     || !!data.reflection_direction
     || getGuidanceQuestions(data).length > 0
 }
+
+const renderedMarkdown = computed(() => {
+  const text = latestGuidance.value?.reflection_direction
+  return text ? marked.parse(text) : ''
+})
 
 function formatQuestion(q) {
   if (typeof q === 'string') return q
@@ -304,6 +341,38 @@ defineExpose({
 @keyframes blink {
   50% { opacity: 0; }
 }
+.content-card {
+  border-radius: 10px;
+  padding: 16px;
+}
+.content-card .guidance-header {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #303133;
+}
+.current-key-event {
+  margin-bottom: 12px;
+}
+.current-key-event-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #409eff;
+  margin-bottom: 6px;
+}
+.current-key-event-desc {
+  color: #606266;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.editor-section {
+  margin-top: 12px;
+}
+.empty-guidance {
+  color: #909399;
+  padding: 16px 0;
+  text-align: center;
+}
 .inline-guidance .section {
   margin-bottom: 14px;
 }
@@ -349,6 +418,50 @@ defineExpose({
   font-size: 13px;
   color: #606266;
   line-height: 1.6;
+}
+.markdown-content {
+  word-break: break-word;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-weight: 600;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.markdown-content h1 { font-size: 16px; }
+.markdown-content h2 { font-size: 15px; }
+.markdown-content h3 { font-size: 14px; }
+.markdown-content p {
+  margin: 6px 0;
+}
+.markdown-content strong {
+  font-weight: 600;
+  color: #303133;
+}
+.markdown-content em {
+  font-style: italic;
+}
+.markdown-content code {
+  background: #f5f7fa;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 12px;
+}
+.markdown-content blockquote {
+  border-left: 3px solid #409eff;
+  padding-left: 10px;
+  margin-left: 0;
+  color: #909399;
+}
+.markdown-content ul,
+.markdown-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.markdown-content li {
+  margin: 4px 0;
 }
 .question-item {
   margin-bottom: 8px;

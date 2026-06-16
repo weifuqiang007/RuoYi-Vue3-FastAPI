@@ -326,7 +326,7 @@ class ReflectionService:
             'depth_score': score,
             'depth_level': level,
             'theory_guidance': [],
-            'reflection_direction': full_text.strip()[:500] or '（未生成可读内容）',
+            'reflection_direction': full_text.strip() or '（未生成可读内容）',
             'questions': [],
         }
 

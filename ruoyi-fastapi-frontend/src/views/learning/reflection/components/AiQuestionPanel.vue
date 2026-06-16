@@ -45,7 +45,7 @@
       <!-- 反思方向 -->
       <div v-if="reflectionDirection" class="section">
         <div class="section-title">💡 反思方向</div>
-        <div class="direction-text">{{ reflectionDirection }}</div>
+        <div class="direction-text markdown-content" v-html="renderedMarkdown"></div>
       </div>
 
       <!-- 追问 -->
@@ -63,6 +63,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import { generateReflectionQuestions } from '@/api/learning/reflection'
 
 const props = defineProps({
@@ -86,6 +87,11 @@ const theoryGuidance = computed(() => {
 })
 
 const reflectionDirection = computed(() => guidance.value.reflection_direction || '')
+
+const renderedMarkdown = computed(() => {
+  const text = reflectionDirection.value
+  return text ? marked.parse(text) : ''
+})
 
 const questions = computed(() => {
   const q = guidance.value.questions || []
@@ -196,5 +202,49 @@ async function generate() {
   color: #606266;
   font-size: 13px;
   line-height: 1.6;
+}
+.markdown-content {
+  word-break: break-word;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-weight: 600;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.markdown-content h1 { font-size: 16px; }
+.markdown-content h2 { font-size: 15px; }
+.markdown-content h3 { font-size: 14px; }
+.markdown-content p {
+  margin: 6px 0;
+}
+.markdown-content strong {
+  font-weight: 600;
+  color: #303133;
+}
+.markdown-content em {
+  font-style: italic;
+}
+.markdown-content code {
+  background: #f5f7fa;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 12px;
+}
+.markdown-content blockquote {
+  border-left: 3px solid #409eff;
+  padding-left: 10px;
+  margin-left: 0;
+  color: #909399;
+}
+.markdown-content ul,
+.markdown-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.markdown-content li {
+  margin: 4px 0;
 }
 </style>

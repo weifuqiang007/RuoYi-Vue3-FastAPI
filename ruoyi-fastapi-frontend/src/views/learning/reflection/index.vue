@@ -30,10 +30,10 @@
     <!-- 底部：深度折线图 + 理论总览 + 确认按钮 -->
     <el-row :gutter="16">
       <el-col :span="14">
-        <DepthChart :history="allDepthHistory" />
+        <DepthChart :history="currentDepthHistory" />
       </el-col>
       <el-col :span="10">
-        <TheoryLinkage :theories="allTheories" />
+        <TheoryLinkage :theories="aggregatedTheories" />
         <div class="mb8" />
         <el-card shadow="never">
           <el-button
@@ -93,33 +93,50 @@ const avgDepthLevel = computed(() => {
   return 'descriptive'
 })
 
-/** 聚合所有 Tab 的深度历史 */
-const allDepthHistory = computed(() => {
-  const all = []
-  Object.values(tabStates.value).forEach(s => {
-    if (s.depthHistory && s.depthHistory.length) {
-      all.push(...s.depthHistory)
-    }
-  })
-  return all.sort((a, b) => new Date(a.create_time) - new Date(b.create_time))
+const activeTabState = computed(() => {
+  return tabStates.value[activeTab.value] || {}
 })
 
-/** 聚合所有 Tab 的理论 */
-const allTheories = computed(() => {
-  const theories = []
-  Object.values(tabStates.value).forEach(s => {
-    if (s.theories && s.theories.length) {
-      theories.push(...s.theories)
-    }
+const currentDepthHistory = computed(() => {
+  return Array.isArray(activeTabState.value.depthHistory)
+    ? activeTabState.value.depthHistory
+    : []
+})
+
+const currentTheories = computed(() => {
+  return Array.isArray(activeTabState.value.theories)
+    ? activeTabState.value.theories
+    : []
+})
+
+const aggregatedTheories = computed(() => {
+  const allTheories = []
+  const seen = new Map() // 用来去重和追踪来源
+  
+  Object.entries(tabStates.value).forEach(([decisionId, state]) => {
+    const theories = Array.isArray(state.theories) ? state.theories : []
+    const tabIndex = tabItems.value.findIndex(item => String(item.decisionId) === String(decisionId))
+    const tabLabel = tabIndex >= 0 ? `关键事件 ${tabIndex + 1}` : ''
+    
+    theories.forEach(theory => {
+      const key = theory.name || theory.theory_name || JSON.stringify(theory)
+      if (!seen.has(key)) {
+        seen.set(key, {
+          ...theory,
+          // 添加来源标注
+          sources: [tabLabel]
+        })
+      } else {
+        // 如果重复，添加到来源列表
+        const existing = seen.get(key)
+        if (tabLabel && !existing.sources.includes(tabLabel)) {
+          existing.sources.push(tabLabel)
+        }
+      }
+    })
   })
-  // 按 theory_name 去重
-  const seen = new Set()
-  return theories.filter(t => {
-    const key = t.theory_name || t.name || JSON.stringify(t)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  
+  return Array.from(seen.values())
 })
 
 function truncate(str, len) {
@@ -206,7 +223,7 @@ async function confirm() {
   confirming.value = true
   try {
     // 保存当前 Tab
-    const currentRef = tabRefs.value[Number(activeTab.value)]
+    const currentRef = tabRefs.value[activeTab.value]
     if (currentRef && currentRef.content?.trim()) {
       await currentRef.save()
     }
