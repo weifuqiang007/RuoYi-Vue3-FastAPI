@@ -241,7 +241,9 @@ class ReflectionService:
             return
 
         # 准备上下文（与非流式一致）
+        # 获取场景的摘要和描述。
         scenario_summary = await cls._get_scenario_summary(db, reflection.record_id)
+        # 获取决策的描述和上下文。
         decision_context = await cls._get_decision_context(db, reflection.decision_id)
         dialogues = await ReflectionDao.get_dialogues(db, reflection_id)
         reflection_history = '\n'.join([
@@ -257,6 +259,7 @@ class ReflectionService:
             reflection_text=reflection.content or '（学生尚未输入反思内容）',
             retrieved_knowledge=retrieved_knowledge or '（暂无相关理论参考）',
         )
+        logger.info('[反思区] 启动流式生成，reflection_id=%s, decision_id=%s, model_id=%s,promot=%s', reflection_id, reflection.decision_id, model_id, prompt)
 
         yield json.dumps({'type': 'status', 'message': 'AI 正在结合理论生成指导...'}, ensure_ascii=False) + '\n'
 
@@ -281,6 +284,10 @@ class ReflectionService:
             return
 
         # 流结束后：解析为结构化结果并落库
+        json_fence_open = full_text.count('```json')
+        fence_total = full_text.count('```')
+        logger.info(f'[反思区诊断] 流式LLM输出完成, full_text长度={len(full_text)}, 含```json标记数={json_fence_open}, 含```围栏总数={fence_total} (奇数=有不闭合的fence=被截断)')
+        logger.info(f'[反思区诊断] full_text尾部800字(看结尾json块是否完整闭合):\n{full_text[-800:]}')
         result = cls._parse_streamed_guidance(full_text)
         try:
             await cls._persist_guidance(db, reflection, result)
@@ -300,23 +307,35 @@ class ReflectionService:
         # ① 优先取最后一个 ```json 代码块（用 ``` 围栏作边界，不可用 \{.*?\}——
         #    非贪婪会停在第一个 } 处，把含嵌套对象的 JSON 截断成非法片段）
         blocks = re.findall(r'```json\s*(.*?)```', full_text, re.DOTALL)
+        logger.info(f'[反思区诊断] 步骤①: 正则找到 {len(blocks)} 个 ```json 闭合代码块')
         candidate = blocks[-1].strip() if blocks else full_text
+        if blocks:
+            logger.info(f'[反思区诊断] 步骤①候选块(取最后一块)前200字:\n{candidate[:200]}')
         try:
             parsed = parse_llm_json(candidate)
             if isinstance(parsed, dict) and parsed:
+                tg = parsed.get('theory_guidance') or []
+                rd_len = len(parsed.get('reflection_direction') or '')
+                logger.info(f'[反思区诊断] 步骤①解析成功 ✓ → theory_guidance数量={len(tg)}, depth_score={parsed.get("depth_score")}, reflection_direction长度={rd_len}')
                 return parsed
-        except Exception:
-            pass
+            logger.warning(f'[反思区诊断] 步骤① parse_llm_json 返回非dict或空: {type(parsed).__name__}')
+        except Exception as e:
+            logger.warning(f'[反思区诊断] 步骤① parse_llm_json 抛异常: {e}')
 
         # ② 整体尝试
         try:
             parsed = parse_llm_json(full_text)
             if isinstance(parsed, dict) and parsed:
+                logger.info('[反思区诊断] 步骤②(整体)解析成功 ✓')
                 return parsed
-        except Exception:
-            pass
+            logger.warning(f'[反思区诊断] 步骤② parse_llm_json 返回非dict或空: {type(parsed).__name__}')
+        except Exception as e:
+            logger.warning(f'[反思区诊断] 步骤② parse_llm_json 抛异常: {e}')
 
         # ③ 兜底：抽取分数，正文作为方向说明，保证不报错
+        logger.warning('[反思区诊断] ★★★ 命中兜底分支(③) ★★★ — Bug1/2/3根源! '
+                       'theory_guidance=[], reflection_direction=full_text前500字(含Markdown语法)')
+        logger.warning(f'[反思区诊断] 兜底原因推测: LLM结尾json块缺失/不闭合/被正文其他```json干扰/含非法字符。full_text前400字:\n{full_text[:400]}')
         score_match = re.search(r'([0-9]*\.?[0-9]+)', full_text)
         score = float(score_match.group(1)) if score_match else 0.3
         if score > 1:
@@ -506,7 +525,9 @@ class ReflectionService:
         if not scenario:
             return '（无情境数据）'
         problems = scenario.identified_problems or []
+        #todo 这里为什么取前三个呢？全部取出来不行吗？
         titles = [p.get('title', '') for p in problems[:3]] if problems else []
+        #todo 这里为什么要取description的前200个字呢？全部取出来不行吗？
         return f"场景：{(scenario.description or '')[:200]}...\n核心问题：{', '.join(titles)}"
 
     @classmethod

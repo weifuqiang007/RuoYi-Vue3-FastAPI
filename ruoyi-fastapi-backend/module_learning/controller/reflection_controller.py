@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import Request, Response
@@ -62,6 +63,7 @@ class ReflectionController:
         data: ReflectionQuestionModel,
     ) -> StreamingResponse:
         """流式生成理论指导：逐字回显可读内容，结束后返回结构化结果并落库"""
+        logging.info("流式生成理论指导：逐字回显可读内容，结束后返回结构化结果并落库。reflection_id 是%s"% data.reflection_id)
         stream = ReflectionService.generate_questions_stream(query_db, data.reflection_id)
         return StreamingResponse(content=stream, media_type='text/event-stream')
 
