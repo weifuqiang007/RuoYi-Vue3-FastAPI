@@ -24,6 +24,7 @@ class EduTask(Base):
     decision_kb_ids = Column(JSONB, comment='决策区使用的知识库ID列表，通常指向伦理守则知识库，用于AI伦理分析')
     reflection_kb_ids = Column(JSONB, comment='反思区使用的知识库ID列表，通常指向理论概念知识库，用于AI关联专业理论')
     research_kb_ids = Column(JSONB, comment='研究生成区使用的知识库ID列表，用于AI生成研究问题时检索学术文献')
+    review_model_id = Column(BigInteger, comment='批阅(裁判)AI模型ID，关联ai_model.model_id；为NULL时回落系统默认批阅模型(sys_config: edu.review.default_model_id)；必须与学生侧(model_id=1)不同，避免同模型自评')
     # 各区AI行为配置（可选），不配则使用系统默认Prompt
     scenario_config = Column(JSONB, comment='情境区AI配置，JSON对象，可自定义提问方向、分析重点等，为空用默认配置')
     reflection_config = Column(JSONB, comment='反思区AI配置，JSON对象，可设置最小反思深度要求、追问策略等，为空用默认配置')

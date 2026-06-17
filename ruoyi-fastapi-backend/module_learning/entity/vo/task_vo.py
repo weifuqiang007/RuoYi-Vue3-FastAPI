@@ -15,6 +15,7 @@ class TaskCreateModel(BaseModel):
     research_kb_ids: Optional[list[int]] = Field(None, description='研究区知识库ID列表')
     scenario_config: Optional[dict] = Field(None, description='情境区AI配置')
     reflection_config: Optional[dict] = Field(None, description='反思区AI配置')
+    review_model_id: Optional[int] = Field(None, description='批阅(裁判)AI模型ID，关联ai_model.model_id；为空时回落系统默认批阅模型，必须与学生侧模型不同')
     deadline: Optional[datetime] = Field(None, description='截止时间')
     dept_ids: Optional[list[int]] = Field(None, description='分配的班级ID列表')
 
@@ -31,6 +32,7 @@ class TaskUpdateModel(BaseModel):
     research_kb_ids: Optional[list[int]] = Field(None, description='研究区知识库ID列表')
     scenario_config: Optional[dict] = Field(None, description='情境区AI配置')
     reflection_config: Optional[dict] = Field(None, description='反思区AI配置')
+    review_model_id: Optional[int] = Field(None, description='批阅(裁判)AI模型ID，关联ai_model.model_id；为空时回落系统默认批阅模型，必须与学生侧模型不同')
     deadline: Optional[datetime] = Field(None, description='截止时间')
     dept_ids: Optional[list[int]] = Field(None, description='分配的班级ID列表，传此字段则覆盖原有分配')
 
@@ -55,6 +57,7 @@ class TaskVO(BaseModel):
     research_kb_ids: Optional[list] = None
     scenario_config: Optional[dict] = None
     reflection_config: Optional[dict] = None
+    review_model_id: Optional[int] = None
     deadline: Optional[datetime] = None
     status: Optional[str] = None
     create_time: Optional[datetime] = None
@@ -71,6 +74,7 @@ class StudentTaskCreateModel(BaseModel):
     decision_kb_ids: Optional[list[int]] = Field(None, description='决策区知识库ID列表，不传则默认使用公用知识库[5]')
     reflection_kb_ids: Optional[list[int]] = Field(None, description='反思区知识库ID列表，不传则默认使用公用知识库[5]')
     research_kb_ids: Optional[list[int]] = Field(None, description='研究区知识库ID列表，不传则默认使用公用知识库[5]')
+    review_model_id: Optional[int] = Field(None, description='批阅(裁判)AI模型ID，关联ai_model.model_id；为空时回落系统默认批阅模型，必须与学生侧模型不同')
 
 
 class TaskListQueryModel(BaseModel):

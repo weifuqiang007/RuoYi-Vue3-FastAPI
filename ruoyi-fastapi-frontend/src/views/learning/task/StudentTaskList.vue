@@ -223,6 +223,20 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-form-item label="批阅模型">
+          <el-select
+            v-model="selfReviewModelId"
+            filterable
+            clearable
+            placeholder="不选则使用系统默认批阅模型（须≠学生侧模型）"
+            style="width: 100%"
+            :loading="modelLoading"
+            @visible-change="handleModelVisibleChange"
+          >
+            <el-option v-for="m in modelOptions" :key="m.model_id" :label="m.model_name" :value="m.model_id" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="selfDialogVisible = false">取 消</el-button>
@@ -261,6 +275,7 @@ import { listStudentTask, getTaskDetail, createStudentTask } from '@/api/learnin
 import { startRecord } from '@/api/learning/record'
 import { listDept } from '@/api/system/dept'
 import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
+import { listModelAll } from '@/api/ai/model'
 
 const router = useRouter()
 
@@ -296,6 +311,12 @@ const selfScenarioKbIds = ref([DEFAULT_KB_ID])
 const selfDecisionKbIds = ref([DEFAULT_KB_ID])
 const selfReflectionKbIds = ref([DEFAULT_KB_ID])
 const selfResearchKbIds = ref([DEFAULT_KB_ID])
+const selfReviewModelId = ref(undefined)
+
+// 批阅模型选项
+const modelOptions = ref([])
+const modelLoading = ref(false)
+const modelLoaded = ref(false)
 
 const detailVisible = ref(false)
 const detail = ref({})
@@ -441,6 +462,31 @@ async function handleKbVisibleChange(v) {
   }
 }
 
+async function loadModelOptions() {
+  if (modelLoading.value) return
+  modelLoading.value = true
+  try {
+    const res = await listModelAll()
+    const data = res?.data
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    modelOptions.value = rows.map(m => ({
+      model_id: m.model_id ?? m.modelId,
+      model_name: m.model_name ?? m.modelName ?? String(m.model_id ?? '')
+    }))
+    modelLoaded.value = true
+  } catch (e) {
+    modelOptions.value = []
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+async function handleModelVisibleChange(v) {
+  if (v && !modelLoaded.value) {
+    await loadModelOptions()
+  }
+}
+
 async function submitSelf() {
   const name = selfTaskName.value.trim()
   if (!name) {
@@ -460,6 +506,7 @@ async function submitSelf() {
       decision_kb_ids: selfDecisionKbIds.value,
       reflection_kb_ids: selfReflectionKbIds.value,
       research_kb_ids: selfResearchKbIds.value,
+      review_model_id: selfReviewModelId.value || undefined,
     })
     ElMessage.success('创建成功')
     getList()
@@ -476,6 +523,7 @@ function openSelfDialog() {
   selfDecisionKbIds.value = [DEFAULT_KB_ID]
   selfReflectionKbIds.value = [DEFAULT_KB_ID]
   selfResearchKbIds.value = [DEFAULT_KB_ID]
+  selfReviewModelId.value = undefined
   selfDialogVisible.value = true
   // 预加载知识库列表
   if (!kbLoaded.value) {

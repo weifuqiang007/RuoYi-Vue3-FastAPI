@@ -40,6 +40,7 @@ class TaskService:
             decision_kb_ids=data.decision_kb_ids if data.decision_kb_ids is not None else DEFAULT_KB_IDS,
             reflection_kb_ids=data.reflection_kb_ids if data.reflection_kb_ids is not None else DEFAULT_KB_IDS,
             research_kb_ids=data.research_kb_ids if data.research_kb_ids is not None else DEFAULT_KB_IDS,
+            review_model_id=data.review_model_id,
             status='1',  # 自研课题直接发布
             create_by=create_by,
         )
@@ -61,6 +62,7 @@ class TaskService:
             research_kb_ids=data.research_kb_ids,
             scenario_config=data.scenario_config,
             reflection_config=data.reflection_config,
+            review_model_id=data.review_model_id,
             deadline=data.deadline,
             create_by=create_by,
         )
@@ -145,6 +147,7 @@ class TaskService:
             'research_kb_ids': task.research_kb_ids,
             'scenario_config': task.scenario_config,
             'reflection_config': task.reflection_config,
+            'review_model_id': task.review_model_id,
             'deadline': str(task.deadline) if task.deadline else None,
             'status': task.status,
             'assigned_classes': assigned_classes,
@@ -255,6 +258,7 @@ class TaskService:
             research_kb_ids=task.research_kb_ids,
             scenario_config=task.scenario_config,
             reflection_config=task.reflection_config,
+            review_model_id=task.review_model_id,
             deadline=task.deadline,
             create_by=create_by,
         )
@@ -281,6 +285,7 @@ class TaskService:
             'research_kb_ids': task.research_kb_ids,
             'scenario_config': task.scenario_config,
             'reflection_config': task.reflection_config,
+            'review_model_id': task.review_model_id,
             'deadline': str(task.deadline) if task.deadline else None,
             'status': task.status,
             'source': source,

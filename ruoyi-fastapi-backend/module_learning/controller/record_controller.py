@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Query, Request, Response
+from fastapi import BackgroundTasks, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.aspect.db_seesion import DBSessionDependency
@@ -73,9 +73,14 @@ class RecordController:
         record_id: int,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        background_tasks: BackgroundTasks,
     ) -> Response:
         try:
             result = await RecordService.advance_stage(query_db, record_id, current_user.user.user_id)
+            # 学生提交研究成果（推进到 submitted）后，后台异步生成首版AI评论，不阻塞提交响应
+            if result.get('current_stage') == 'submitted':
+                from module_learning.service.review_service import ReviewService
+                background_tasks.add_task(ReviewService._auto_comment_task, record_id)
             return ResponseUtil.success(data=result)
         except (ValueError, PermissionError) as e:
             return ResponseUtil.failure(msg=str(e))

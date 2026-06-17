@@ -107,6 +107,20 @@
           </el-form-item>
         </el-col>
       </el-row>
+
+      <el-form-item label="批阅模型">
+        <el-select
+          v-model="form.review_model_id"
+          filterable
+          clearable
+          placeholder="不选则使用系统默认批阅模型（须≠学生侧模型）"
+          style="width: 100%"
+          :loading="modelLoading"
+          @visible-change="handleModelVisibleChange"
+        >
+          <el-option v-for="m in modelOptions" :key="m.model_id" :label="m.model_name" :value="m.model_id" />
+        </el-select>
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -121,6 +135,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
 import { listDept } from '@/api/system/dept'
+import { listModelAll } from '@/api/ai/model'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -138,6 +153,9 @@ const title = computed(() => (props.data?.task_id ? '编辑任务' : '创建任�
 const kbOptions = ref([])
 const kbLoading = ref(false)
 const kbLoaded = ref(false)
+const modelOptions = ref([])
+const modelLoading = ref(false)
+const modelLoaded = ref(false)
 const deptOptions = ref([])
 const deptLoaded = ref(false)
 const formRef = ref()
@@ -152,6 +170,7 @@ const form = reactive({
   decision_kb_ids: [],
   reflection_kb_ids: [],
   research_kb_ids: [],
+  review_model_id: undefined,
   deadline: '',
   dept_ids: []
 })
@@ -231,6 +250,32 @@ async function handleKbVisibleChange(v) {
   }
 }
 
+async function loadModelOptions() {
+  if (modelLoading.value) return
+  modelLoading.value = true
+  try {
+    const res = await listModelAll()
+    const data = res?.data
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+    modelOptions.value = rows.map(m => ({
+      model_id: m.model_id ?? m.modelId,
+      model_name: m.model_name ?? m.modelName ?? String(m.model_id ?? '')
+    }))
+    modelLoaded.value = true
+  } catch (e) {
+    modelOptions.value = []
+    modelLoaded.value = false
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+async function handleModelVisibleChange(v) {
+  if (v && !modelLoaded.value) {
+    await loadModelOptions()
+  }
+}
+
 function resetFormFromProps() {
   const d = props.data || {}
   form.task_id = d.task_id ?? d.taskId
@@ -241,6 +286,7 @@ function resetFormFromProps() {
   form.decision_kb_ids = normalizeIdList(d.decision_kb_ids ?? d.decisionKbIds)
   form.reflection_kb_ids = normalizeIdList(d.reflection_kb_ids ?? d.reflectionKbIds)
   form.research_kb_ids = normalizeIdList(d.research_kb_ids ?? d.researchKbIds)
+  form.review_model_id = d.review_model_id ?? d.reviewModelId ?? undefined
   form.deadline = d.deadline ?? ''
   // 回显已分配的班级：从 assigned_classes 中提取 dept_id 列表
   const ac = d.assigned_classes ?? d.assignedClasses ?? []
@@ -261,6 +307,7 @@ async function submit() {
       decision_kb_ids: form.decision_kb_ids,
       reflection_kb_ids: form.reflection_kb_ids,
       research_kb_ids: form.research_kb_ids,
+      review_model_id: form.review_model_id ?? null,
       deadline: form.deadline || null,
       dept_ids: form.dept_ids
     })
@@ -276,7 +323,7 @@ watch(
   () => visible.value,
   async (v) => {
     if (v) {
-      await Promise.all([ensureKbOptions(), loadDeptOptions()])
+      await Promise.all([ensureKbOptions(), loadDeptOptions(), loadModelOptions()])
       resetFormFromProps()
     }
   }
