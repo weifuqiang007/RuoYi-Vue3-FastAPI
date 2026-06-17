@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import Body, Request, Response
@@ -29,9 +30,11 @@ class ResearchController:
         record_id: int,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+        force: bool = Body(False, embed=True, description='是否强制重新汇总前三区材料'),
     ) -> Response:
+        logging.info("record_id is %s, force is %s", record_id, force)
         try:
-            result = await ResearchService.init_research(query_db, record_id, current_user.user.user_id)
+            result = await ResearchService.init_research(query_db, record_id, current_user.user.user_id, force=force)
             return ResponseUtil.success(data=result)
         except Exception as e:
             return ResponseUtil.failure(msg=str(e))

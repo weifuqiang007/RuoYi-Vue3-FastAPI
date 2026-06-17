@@ -65,10 +65,11 @@ function streamFetch(url, data, callbacks = {}, signal = null) {
 
 // ── 非流式接口 ──
 
-export function initResearch(recordId) {
+export function initResearch(recordId, force = false) {
   return request({
     url: `/learning/research/init/${recordId}`,
-    method: 'post'
+    method: 'post',
+    data: { force }
   })
 }
 

@@ -2,9 +2,9 @@
   <div>
     <el-row :gutter="16">
       <el-col :span="12">
-        <MaterialSummary :text="materialSummary">
+        <MaterialSummary v-model="materialSummary">
           <template #actions>
-            <el-button size="small" :loading="initializing" @click="init">重新汇总</el-button>
+            <el-button size="small" :loading="initializing" @click="init(true)">重新汇总</el-button>
           </template>
         </MaterialSummary>
         <div class="mb8" />
@@ -161,20 +161,32 @@ function normalizeChapter(row) {
   }
 }
 
-async function init() {
+async function init(force = false) {
   initializing.value = true
   try {
-    const res = await initResearch(props.recordId)
+    const res = await initResearch(props.recordId, force)
     const data = res.data || {}
     researchId.value = data.research_id ?? data.researchId ?? researchId.value
     materialSummary.value = data.material_summary ?? data.materialSummary ?? materialSummary.value
-    candidateQuestions.value = data.candidate_questions ?? data.candidateQuestions ?? candidateQuestions.value
-    selectedQuestion.value = data.selected_question ?? data.selectedQuestion ?? selectedQuestion.value
-    framework.value = data.framework ?? framework.value
-    references.value = data.references ?? data.ref_literature ?? references.value
-    const rawChapters = data.chapters ?? []
-    chapters.value = Array.isArray(rawChapters) ? rawChapters.map(normalizeChapter) : []
-    if (chapters.value.length) activeTab.value = String(chapters.value[0].chapter_id)
+    if (force) {
+      // 重新汇总：强制用后端最新数据刷新各字段
+      candidateQuestions.value = data.candidate_questions ?? data.candidateQuestions ?? []
+      selectedQuestion.value = data.selected_question ?? data.selectedQuestion ?? ''
+      framework.value = data.framework ?? null
+      references.value = data.references ?? data.ref_literature ?? []
+      const rawChapters = data.chapters ?? []
+      chapters.value = Array.isArray(rawChapters) ? rawChapters.map(normalizeChapter) : []
+      if (chapters.value.length) activeTab.value = String(chapters.value[0].chapter_id)
+      ElMessage.success('已重新汇总前三区材料')
+    } else {
+      candidateQuestions.value = data.candidate_questions ?? data.candidateQuestions ?? candidateQuestions.value
+      selectedQuestion.value = data.selected_question ?? data.selectedQuestion ?? selectedQuestion.value
+      framework.value = data.framework ?? framework.value
+      references.value = data.references ?? data.ref_literature ?? references.value
+      const rawChapters = data.chapters ?? []
+      chapters.value = Array.isArray(rawChapters) ? rawChapters.map(normalizeChapter) : []
+      if (chapters.value.length) activeTab.value = String(chapters.value[0].chapter_id)
+    }
     emit('stage-updated')
   } finally {
     initializing.value = false

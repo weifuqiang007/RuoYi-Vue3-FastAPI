@@ -133,45 +133,120 @@ REFERENCES_STREAM_PROMPT = """你是一位学术文献检索专家，请基于�
 class ResearchService:
 
     @classmethod
-    async def init_research(cls, db: AsyncSession, record_id: int, student_id: int, model_id: int = 1) -> dict:
-        """初始化研究区，汇总前三区材料；已存在则返回完整数据用于页面回显"""
+    async def init_research(cls, db: AsyncSession, record_id: int, student_id: int, model_id: int = 1, force: bool = False) -> dict:
+        """初始化研究区。
+        - force=False（页面加载）：已存在则直接返回完整数据用于回显，不覆盖；
+        - force=True（点击"重新汇总"）：强制重新聚合前三区材料并更新 DB。
+        """
         record = await RecordDao.get_by_id(db, record_id)
         if not record:
             raise ValueError('学习记录不存在')
 
-        # 查找已存在的 research
         research = await ResearchDao.get_by_record_id(db, record_id)
-        if research:
-            # 已存在：直接返回完整数据，不覆盖用户保存的内容
+
+        # 页面加载且已存在：直接返回完整数据，不覆盖用户保存的内容
+        if research and not force:
             return await cls.get_detail(db, record_id) or {
                 'research_id': research.research_id,
             }
 
-        # 首次创建：汇总前三区材料
-        scenario = await ScenarioDao.get_by_record_id(db, record_id)
-        decisions = await DecisionDao.get_by_record_id(db, record_id)
-        reflection = await ReflectionDao.get_by_record_id(db, record_id)
+        # 重新聚合前三区材料
+        material_summary = await cls._aggregate_material(db, record_id)
 
-        material_summary = f"情境：{(scenario.description or '')[:300] if scenario else '无'}\n"
-        material_summary += f"决策数：{len(decisions)}\n"
-        material_summary += f"反思：{(reflection.content or '')[:300] if reflection else '无'}"
+        if research:
+            # 已存在（force=True）：只更新 material_summary，保留其余字段
+            research.material_summary = material_summary
+            research.update_time = datetime.now()
+            await ResearchDao.update(db, research)
+        else:
+            # 首次创建
+            research = EduResearchData(
+                record_id=record_id,
+                student_id=student_id,
+                material_summary=material_summary,
+            )
+            research = await ResearchDao.create(db, research)
+            # 回填 record
+            record.research_id = research.research_id
+            record.research_status = '1'
+            record.update_time = datetime.now()
+            await RecordDao.update(db, record)
 
-        research = EduResearchData(
-            record_id=record_id,
-            student_id=student_id,
-            material_summary=material_summary,
-        )
-        research = await ResearchDao.create(db, research)
-        # 回填 record
-        record.research_id = research.research_id
-        record.research_status = '1'
-        record.update_time = datetime.now()
-        await RecordDao.update(db, record)
-
-        return {
+        return await cls.get_detail(db, record_id) or {
             'research_id': research.research_id,
             'material_summary': material_summary,
         }
+
+    @classmethod
+    async def _aggregate_material(cls, db: AsyncSession, record_id: int) -> str:
+        """聚合前三区（情境/决策/反思）完整材料，不做截断"""
+        scenario = await ScenarioDao.get_by_record_id(db, record_id)
+        decisions = await DecisionDao.get_by_record_id(db, record_id)
+        reflections = await ReflectionDao.get_list_by_record_id(db, record_id)
+
+        sections = []
+
+        # 情境：完整描述
+        scenario_text = (scenario.description or '').strip() if scenario else ''
+        sections.append('【情境】\n' + (scenario_text or '（无情境数据）'))
+
+        # 决策：每条列出关键事件、采取行动、理由、实际结果
+        if decisions:
+            decision_lines = [f'共 {len(decisions)} 条决策记录：']
+            for i, d in enumerate(decisions, 1):
+                parts = [f'\n【决策{i}】']
+                event = cls._clean_text(d.key_event_desc)
+                if event:
+                    parts.append(f'关键事件：{event}')
+                action = cls._clean_text(d.action_taken)
+                if action:
+                    parts.append(f'采取行动：{action}')
+                reasoning = cls._clean_text(d.reasoning)
+                if reasoning:
+                    parts.append(f'行动理由：{reasoning}')
+                outcome = cls._clean_text(d.actual_outcome)
+                if outcome:
+                    parts.append(f'实际结果：{outcome}')
+                decision_lines.append('\n'.join(parts))
+            sections.append('【决策】' + '\n'.join(decision_lines))
+        else:
+            sections.append('【决策】\n（无决策记录）')
+
+        # 反思：取最新一条完整内容
+        if reflections:
+            latest = reflections[0]
+            reflection_text = (latest.content or '').strip()
+            sections.append('【反思】\n' + (reflection_text or '（反思内容为空）'))
+        else:
+            sections.append('【反思】\n（无反思记录）')
+
+        return '\n\n'.join(sections)
+
+    @staticmethod
+    def _clean_text(raw) -> str:
+        """清洗字段文本：解析JSON残留、去除断裂的JSON片段，返回纯文本"""
+        if not raw:
+            return ''
+        text = str(raw).strip()
+        if not text:
+            return ''
+        # 尝试解析为完整 JSON（key_event_desc 可能存了 {"event":"..."} ）
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                for key in ('event', 'description', 'title', 'content'):
+                    if obj.get(key):
+                        return str(obj[key]).strip()
+                return str(obj).strip()
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # 处理断裂的 JSON 残留（如 {"event":"xxx 被截断）
+        json_prefix = re.search(r'^\s*\{\s*"?[一-龥\w]+"?\s*:\s*"?(.*)$', text, re.S)
+        if json_prefix:
+            cleaned = json_prefix.group(2).strip().rstrip('"}').strip()
+            if cleaned:
+                return cleaned
+        return text
 
     @classmethod
     async def save(cls, db: AsyncSession, data: ResearchSaveModel) -> dict:
