@@ -601,6 +601,9 @@ class LoggerInitializer:
         configured_logger.remove()
         info_log_path = os.path.join(self._log_base_dir, '{time:YYYY}', '{time:MM}', '{time:DD}', 'info.log')
         error_log_path = os.path.join(self._log_base_dir, '{time:YYYY}', '{time:MM}', '{time:DD}', 'error.log')
+        # 全量日志：汇总所有级别（DEBUG→CRITICAL）按时间顺序写入同一文件，
+        # 便于在一个文件中追踪从接口入口到报错的完整链路（配合 trace_id 过滤单次请求）。
+        all_log_path = os.path.join(self._log_base_dir, '{time:YYYY}', '{time:MM}', '{time:DD}', 'all.log')
         if LogConfig.loguru_stdout:
             if LogConfig.loguru_json:
                 configured_logger.add(
@@ -642,6 +645,17 @@ class LoggerInitializer:
                     serialize=False,
                     format=self._json_log_formatter,
                 )
+                configured_logger.add(
+                    all_log_path,
+                    level=LogConfig.loguru_level,
+                    rotation=LogConfig.loguru_rotation,
+                    retention=LogConfig.loguru_retention,
+                    compression=LogConfig.loguru_compression,
+                    enqueue=True,
+                    filter=self._filter,
+                    serialize=False,
+                    format=self._json_log_formatter,
+                )
             else:
                 configured_logger.add(
                     info_log_path,
@@ -661,6 +675,16 @@ class LoggerInitializer:
                     compression=LogConfig.loguru_compression,
                     enqueue=True,
                     filter=self._error_file_filter,
+                    format=self._plain_log_formatter,
+                )
+                configured_logger.add(
+                    all_log_path,
+                    level=LogConfig.loguru_level,
+                    rotation=LogConfig.loguru_rotation,
+                    retention=LogConfig.loguru_retention,
+                    compression=LogConfig.loguru_compression,
+                    enqueue=True,
+                    filter=self._filter,
                     format=self._plain_log_formatter,
                 )
         self._configure_logging()

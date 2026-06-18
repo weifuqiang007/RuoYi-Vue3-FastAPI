@@ -201,7 +201,7 @@ class ReviewService:
         try:
             ai_comment = await AiCall.call_llm_json(db, review_model_id, prompt)
         except Exception as e:
-            logger.error('[批阅] LLM调用失败 record_id=%s: %s', record_id, e, exc_info=True)
+            logger.exception('[批阅] LLM调用失败 record_id=%s', record_id)
             raise ValueError('AI评论生成失败，请稍后重试')
 
         ai_comment_text = cls._ai_comment_to_text(ai_comment)
@@ -321,7 +321,7 @@ class ReviewService:
                 logger.info('[批阅] 自动生成AI评论成功 record_id=%s', record_id)
             except Exception as e:
                 await db.rollback()
-                logger.error('[批阅] 自动生成AI评论失败 record_id=%s: %s', record_id, e, exc_info=True)
+                logger.exception('[批阅] 自动生成AI评论失败 record_id=%s', record_id)
 
     # ============================================================
     # 权限 & 数据范围
@@ -439,7 +439,7 @@ class ReviewService:
             )
             return '\n\n'.join([f'【{c["content"][:200]}】' for c in chunks])
         except Exception as e:
-            logger.error('[批阅] RAG检索异常: %s', e, exc_info=True)
+            logger.exception('[批阅] RAG检索异常')
             return ''
 
     # ============================================================

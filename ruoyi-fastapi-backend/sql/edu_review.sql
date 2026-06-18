@@ -102,5 +102,5 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_config WHERE config_key = 'edu.review.defaul
 --    ⚠️ parent_id 请改成你库中「学习/反身性研究」父目录的实际 menu_id；
 --       执行后还需在「角色-菜单」(sys_role_menu) 中把 menu_id=4170 分配给 teacher / admin 角色。
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
-SELECT 4170, '教师批阅', 0, 5, 'review', 'learning/review/index', NULL, 1, 0, 'C', '0', '0', 'learning:review:list', 'edit', 'admin', CURRENT_TIMESTAMP, '教师批阅反思研究工作台'
+SELECT 4170, '教师批阅', 4000, 5, 'review', 'learning/review/index', NULL, 1, 0, 'C', '0', '0', 'learning:review:list', 'edit', 'admin', CURRENT_TIMESTAMP, '教师批阅反思研究工作台'
 WHERE NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_id = 4170);
