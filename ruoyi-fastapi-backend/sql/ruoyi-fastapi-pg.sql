@@ -1536,3 +1536,19 @@ COMMENT ON COLUMN edu_scenario_dialogue.dialogue_type IS '对话类型（analyze
 ALTER TABLE edu_reflection_data ADD COLUMN IF NOT EXISTS decision_id BIGINT;
 COMMENT ON COLUMN edu_reflection_data.decision_id IS '关联的决策记录ID，每个决策对应一条独立反思，关联edu_decision_data.decision_id';
 CREATE INDEX IF NOT EXISTS idx_reflection_decision ON edu_reflection_data(decision_id);
+
+
+-- =============================================
+-- 同步 edu 相关表的 bigserial 序列
+-- 作用：防止用显式 id 插入数据（手动SQL/数据导入）后序列未推进，
+--      导致后续 ORM 自增插入时主键冲突（edu_teacher_class_pkey 等）。
+-- 幂等：空表时设为 1，有数据时设为 MAX+1。
+-- =============================================
+SELECT setval(pg_get_serial_sequence('edu_student_profile', 'profile_id'),
+              COALESCE((SELECT MAX(profile_id) FROM edu_student_profile), 0) + 1, false);
+SELECT setval(pg_get_serial_sequence('edu_teacher_profile', 'profile_id'),
+              COALESCE((SELECT MAX(profile_id) FROM edu_teacher_profile), 0) + 1, false);
+SELECT setval(pg_get_serial_sequence('edu_teacher_class', 'id'),
+              COALESCE((SELECT MAX(id) FROM edu_teacher_class), 0) + 1, false);
+SELECT setval(pg_get_serial_sequence('edu_registration_audit', 'audit_id'),
+              COALESCE((SELECT MAX(audit_id) FROM edu_registration_audit), 0) + 1, false);

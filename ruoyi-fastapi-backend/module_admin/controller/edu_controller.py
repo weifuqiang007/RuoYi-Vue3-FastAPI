@@ -19,6 +19,7 @@ from module_admin.entity.vo.edu_vo import (
     ManagedUserVO,
     StudentInfoEditModel,
     StudentInfoModel,
+    StudentClassUpdateModel,
     StudentRegisterModel,
     TeacherClassAddModel,
     TeacherClassModel,
@@ -396,3 +397,61 @@ async def managed_audit_user(
     result = await EduService.managed_audit_user(query_db, current_user, user_id, audit_model)
     logger.info(result.message)
     return ResponseUtil.success(data=result, msg=result.message)
+
+
+# ==================== 学生个人中心-自管班级（需学生登录） ====================
+
+
+student_controller = APIRouterPro(
+    prefix='/edu/student',
+    order_num=14,
+    tags=['教育模块-学生自管'],
+    dependencies=[PreAuthDependency()],
+)
+
+
+@student_controller.put(
+    '/class',
+    summary='学生修改自己的班级',
+    description='学生在个人中心修改自己的所属班级（单选），同步更新所属部门显示',
+    response_model=DataResponseModel[CrudResponseModel],
+)
+async def update_student_own_class(
+    request: Request,
+    class_data: StudentClassUpdateModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await EduService.update_student_own_class(
+        query_db,
+        user_id=current_user.user.user_id,
+        class_id=class_data.class_id,
+    )
+    logger.info(result.message)
+    return ResponseUtil.success(data=result, msg=result.message)
+
+
+# ==================== 个人中心-部门(班级)树（登录即可） ====================
+
+
+profile_controller = APIRouterPro(
+    prefix='/edu/profile',
+    order_num=15,
+    tags=['教育模块-个人中心'],
+    dependencies=[PreAuthDependency()],
+)
+
+
+@profile_controller.get(
+    '/deptTree',
+    summary='个人中心-部门(班级)树',
+    description='返回全部在用部门，供学生/教师在个人中心选择班级（不限数据范围，仅需登录）',
+)
+async def get_profile_dept_tree(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    data = await EduService.get_profile_dept_tree(query_db)
+    logger.info('获取个人中心部门树成功')
+    return ResponseUtil.success(data=data)

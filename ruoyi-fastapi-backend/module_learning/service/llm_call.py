@@ -22,13 +22,20 @@ from module_ai.entity.vo.ai_model_vo import AiModelModel
 class AiCall:
 
     @classmethod
-    async def _get_model_from_db(cls, query_db: AsyncSession, model_id: int):
+    async def _get_model_from_db(cls, query_db: AsyncSession, model_id: int,
+                                 min_max_tokens: int | None = None):
 
         ai_model = await AiModelDao.get_ai_model_detail_by_id(query_db, model_id)
         if not ai_model:
             raise ValueError(f"模型不存在：{model_id}")
         model_config = AiModelModel(**CamelCaseUtil.transform_result(ai_model))
         real_api_key = CryptoUtil.decrypt(model_config.api_key)
+
+        # 数据库配置优先，未配置则兜底 2000；JSON 结构化输出场景可通过 min_max_tokens 抬高下限，
+        # 避免长内容被 max_tokens 截断而产出不完整 JSON。
+        effective_max_tokens = model_config.max_tokens or 2000
+        if min_max_tokens is not None:
+            effective_max_tokens = max(effective_max_tokens, min_max_tokens)
 
         model = AiUtil.get_model_from_factory(
             provider=model_config.provider,
@@ -37,7 +44,7 @@ class AiCall:
             api_key=real_api_key,
             base_url=model_config.base_url,
             temperature=model_config.temperature or 0.7,
-            max_tokens=model_config.max_tokens or 2000,
+            max_tokens=effective_max_tokens,
         )
         return model
 
@@ -46,12 +53,14 @@ class AiCall:
                                   query_db: AsyncSession,
                                   model_id: int,
                                   prompt: str,
-                                  system: str = None) -> str:
+                                  system: str = None,
+                                  min_max_tokens: int | None = None) -> str:
         """
             非流式 LLM 调用（完整输出）
             适用：四区 AI 分析，需要完整结果后再处理
+            :param min_max_tokens: max_tokens 下限，传入则保证生效值 >= 该值（用于 JSON 结构化输出场景防截断）
         """
-        model = await cls._get_model_from_db(query_db, model_id)
+        model = await cls._get_model_from_db(query_db, model_id, min_max_tokens=min_max_tokens)
         agent = Agent(
             model=model,
             description=system or 'You are a helpful AI assistant.',
@@ -69,8 +78,9 @@ class AiCall:
         """
             非流式调用 + JSON 解析
             适用：需要 LLM 返回结构化数据的场景（决策分析、反思评估等）
+            结构化 JSON 输出字段多、内容长，强制 max_tokens 下限 4096，避免被截断成不完整 JSON。
         """
-        raw_text = await cls.call_llm_non_stream(query_db, model_id, prompt, system)
+        raw_text = await cls.call_llm_non_stream(query_db, model_id, prompt, system, min_max_tokens=4096)
         return parse_llm_json(raw_text)
 
 

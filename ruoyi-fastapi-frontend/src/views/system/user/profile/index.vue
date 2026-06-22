@@ -27,7 +27,13 @@
                      </li>
                      <li class="list-group-item">
                         <svg-icon icon-class="tree" />所属部门
-                        <div class="pull-right" v-if="state.user.dept">{{ state.user.dept.deptName }} / {{ state.postGroup }}</div>
+                        <div class="pull-right class-cards">
+                           <span v-if="!classCards.length" class="class-empty">未设置</span>
+                           <div v-for="c in classCards" :key="c.classId" class="class-card">
+                              <svg-icon icon-class="tree" class="class-card-icon" />
+                              <span>{{ c.deptName }}</span>
+                           </div>
+                        </div>
                      </li>
                      <li class="list-group-item">
                         <svg-icon icon-class="peoples" />所属角色
@@ -55,6 +61,9 @@
                   <el-tab-pane label="修改密码" name="resetPwd">
                      <resetPwd />
                   </el-tab-pane>
+                  <el-tab-pane label="所属班级" name="myclass">
+                     <userClass :user="state.user" @refresh="getUser" />
+                  </el-tab-pane>
                </el-tabs>
             </el-card>
          </el-col>
@@ -66,14 +75,27 @@
 import userAvatar from "./userAvatar";
 import userInfo from "./userInfo";
 import resetPwd from "./resetPwd";
+import userClass from "./userClass";
 import { getUserProfile } from "@/api/system/user";
+import useUserStore from "@/store/modules/user";
+import { getMyTeacherClasses } from "@/api/edu/profile";
 
 const route = useRoute()
+const userStore = useUserStore()
+const isTeacher = computed(() => (userStore.roles || []).includes('teacher'))
+const classCards = computed(() => {
+  if (isTeacher.value) {
+    return state.teacherClasses || []
+  }
+  const dept = state.user && state.user.dept
+  return dept && dept.deptName ? [{ classId: dept.deptId, deptName: dept.deptName }] : []
+})
 const selectedTab = ref("userinfo")
 const state = reactive({
   user: {},
   roleGroup: {},
-  postGroup: {}
+  postGroup: {},
+  teacherClasses: []
 });
 
 function getUser() {
@@ -81,8 +103,20 @@ function getUser() {
     state.user = response.data;
     state.roleGroup = response.roleGroup;
     state.postGroup = response.postGroup;
+    if (isTeacher.value) {
+      loadTeacherClasses();
+    }
   });
 };
+
+function loadTeacherClasses() {
+  getMyTeacherClasses().then(res => {
+    const list = res.data || []
+    state.teacherClasses = list
+      .map(item => ({ classId: item.class_id ?? item.classId, deptName: item.dept_name ?? item.deptName }))
+      .filter(c => c.deptName)
+  });
+}
 
 onMounted(() => {
   const activeTab = route.params && route.params.activeTab
@@ -92,3 +126,32 @@ onMounted(() => {
   getUser()
 })
 </script>
+
+<style scoped>
+.class-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.class-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-left: 3px solid #409eff;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: #303133;
+  line-height: 1.4;
+}
+.class-card-icon {
+  color: #409eff;
+}
+.class-empty {
+  color: #909399;
+  font-size: 13px;
+}
+</style>

@@ -8,8 +8,10 @@ from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
 from module_admin.dao.edu_dao import EduDao
 from module_admin.dao.user_dao import UserDao
+from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.edu_do import EduRegistrationAudit
 from module_admin.entity.do.user_do import SysUserRole
+from module_admin.service.dept_service import DeptService
 from module_admin.entity.vo.edu_vo import (
     AuditQueryModel,
     AuditVO,
@@ -205,6 +207,36 @@ class EduService:
         await EduDao.remove_teacher_class(query_db, tc_id)
         await query_db.commit()
         return CrudResponseModel(is_success=True, message='删除成功')
+
+    @classmethod
+    async def update_student_own_class(cls, query_db: AsyncSession, user_id: int, class_id: int) -> CrudResponseModel:
+        """学生个人中心：修改自己的班级，并同步 sys_user.dept_id 以便个人中心正确显示所属部门"""
+        profile = await EduDao.get_student_profile_by_user_id(query_db, user_id)
+        if not profile:
+            raise ServiceException(message='当前账号不是学生，无法设置班级')
+
+        await EduDao.update_student_profile(query_db, user_id, class_id=class_id)
+        # 同步 sys_user.dept_id（复刻 register_student 的做法），保证个人中心"所属部门"显示一致
+        await UserDao.edit_user_dao(query_db, {'user_id': user_id, 'dept_id': class_id})
+        await query_db.commit()
+        return CrudResponseModel(is_success=True, message='班级更新成功')
+
+    @classmethod
+    async def get_profile_dept_tree(cls, query_db: AsyncSession) -> list[dict]:
+        """个人中心-部门(班级)树：返回全部在用部门，不限数据范围，供学生/教师在个人中心选班级"""
+        dept_list = (
+            (
+                await query_db.execute(
+                    select(SysDept)
+                    .where(SysDept.status == '0', SysDept.del_flag == '0')
+                    .order_by(SysDept.order_num)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        tree_models = DeptService.list_to_tree(dept_list)
+        return [dept.model_dump(exclude_unset=True, by_alias=True) for dept in tree_models]
 
     @classmethod
     async def get_students_by_teacher(cls, query_db: AsyncSession, user_id: int) -> list[dict]:

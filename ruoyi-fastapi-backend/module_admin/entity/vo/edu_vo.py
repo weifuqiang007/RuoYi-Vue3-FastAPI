@@ -102,6 +102,14 @@ class TeacherClassAddModel(BaseModel):
     class_id: int = Field(description='班级ID')
 
 
+class StudentClassUpdateModel(BaseModel):
+    """学生个人中心-修改自己的班级"""
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    class_id: int = Field(description='班级ID')
+
+
 class StudentInfoModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 

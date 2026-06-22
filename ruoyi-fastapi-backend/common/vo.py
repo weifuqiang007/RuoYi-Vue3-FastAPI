@@ -36,7 +36,7 @@ class DynamicResponseModel(ResponseBaseModel, Generic[T]):
     动态响应模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     def __class_getitem__(cls, item: Any) -> Any | Self:
         """
@@ -82,7 +82,7 @@ class PageModel(BaseModel, Generic[T]):
     分页模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     rows: list[T] = Field(description='记录列表')
     page_num: int = Field(description='当前页码')

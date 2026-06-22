@@ -40,17 +40,23 @@
               :style="{ marginBottom: '24px' }"
               title="进行中的项目"
               :bordered="false"
-              :loading="false"
+              :loading="loading"
               :body-style="{ padding: 0 }"
             >
               <template #extra>
-                <a href="">
+                <a href="javascript:void(0)" @click.prevent="goAllProjects">
                   <span style="color: var(--el-color-primary)">全部项目</span>
                 </a>
               </template>
+              <div
+                v-if="!recentTasks.length && !loading"
+                style="padding: 24px; text-align: center; color: var(--el-text-color-secondary)"
+              >
+                暂无进行中的项目
+              </div>
               <a-card-grid
-                v-for="item in projectNotice"
-                :key="item.id"
+                v-for="item in recentTasks"
+                :key="item.task_id"
                 class="projectGrid"
               >
                 <a-card
@@ -58,22 +64,27 @@
                   style="box-shadow: none"
                   :bordered="false"
                 >
-                  <a-card-meta :description="item.description" class="w-full">
+                  <a-card-meta :description="item.task_description" class="w-full">
                     <template #title>
                       <div class="cardTitle">
-                        <a-avatar size="small" :src="item.logo" />
-                        <a :href="item.href">
-                          {{ item.title }}
+                        <a-avatar
+                          size="small"
+                          :style="{ background: String(item.creator_type) === '1' ? '#67c23a' : '#409eff' }"
+                        >
+                          {{ (item.task_name || '?').charAt(0) }}
+                        </a-avatar>
+                        <a href="javascript:void(0)" @click.prevent="goAllProjects">
+                          {{ item.task_name }}
                         </a>
                       </div>
                     </template>
                   </a-card-meta>
                   <div class="projectItemContent">
-                    <a :href="item.memberLink">
-                      {{ item.member || "" }}
+                    <a href="javascript:void(0)" @click.prevent="goAllProjects">
+                      {{ item.classes_text || item.member }}
                     </a>
-                    <span class="datetime" ml-2 :title="item.updatedAt">
-                      {{ item.updatedAt }}
+                    <span class="datetime" ml-2 :title="item.updated_at">
+                      {{ item.updated_at }}
                     </span>
                   </div>
                 </a-card>
@@ -86,39 +97,7 @@
               title="动态"
               :loading="false"
             >
-              <a-list :data-source="activities" class="activitiesList">
-                <template #renderItem="{ item }">
-                  <a-list-item :key="item.id">
-                    <a-list-item-meta>
-                      <template #title>
-                        <span>
-                          <a class="username">{{ item.user.name }}</a
-                          >&nbsp;
-                          <span class="event">
-                            <span>{{ item.template1 }}</span
-                            >&nbsp;
-                            <a href="" style="color: var(--el-color-primary)">
-                              {{ item?.group?.name }} </a
-                            >&nbsp; <span>{{ item.template2 }}</span
-                            >&nbsp;
-                            <a href="" style="color: var(--el-color-primary)">
-                              {{ item?.project?.name }}
-                            </a>
-                          </span>
-                        </span>
-                      </template>
-                      <template #avatar>
-                        <a-avatar :src="item.user.avatar" />
-                      </template>
-                      <template #description>
-                        <span class="datetime" :title="item.updatedAt">
-                          {{ item.updatedAt }}
-                        </span>
-                      </template>
-                    </a-list-item-meta>
-                  </a-list-item>
-                </template>
-              </a-list>
+              <ActivityWall :limit="20" :visible-rows="8" />
             </a-card>
           </a-col>
           <a-col :xl="8" :lg="24" :md="24" :sm="24" :xs="24">
@@ -204,8 +183,78 @@ export default {
 import { Radar } from "@antv/g2plot";
 import EditableLinkGroup from "./editable-link-group.vue";
 import useSettingsStore from "@/store/modules/settings";
+import useUserStore from "@/store/modules/user";
+import { listStudentTask, listTeacherTask } from "@/api/learning/task";
+import ActivityWall from "./components/ActivityWall.vue";
 
 const settingsStore = useSettingsStore();
+const userStore = useUserStore();
+const router = useRouter();
+
+// 角色判断（admin/学生 → /student/list；教师 → /list）
+const isTeacher = computed(() => (userStore.roles || []).includes("teacher"));
+
+// 进行中的项目：按角色取最近 6 条任务（后端已 order by create_time desc）
+const recentTasks = ref([]);
+const loading = ref(true);
+
+function formatAssignedClasses(list) {
+  if (!Array.isArray(list) || list.length === 0) return "";
+  return list
+    .map((c) => c.dept_name ?? c.deptName ?? "")
+    .filter(Boolean)
+    .join("、");
+}
+function formatDate(t) {
+  if (!t) return "";
+  const d = new Date(t);
+  if (isNaN(d.getTime())) return String(t).slice(0, 16);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function normalizeTaskRow(row) {
+  const creatorType = row.creator_type ?? row.creatorType;
+  const teacherName = row.teacher_name ?? row.teacherName;
+  const studentName = row.student_name ?? row.studentName;
+  const assignedClasses = row.assigned_classes ?? row.assignedClasses ?? [];
+  const isSelf = String(creatorType) === "1";
+  return {
+    task_id: row.task_id ?? row.taskId,
+    task_name: row.task_name ?? row.taskName ?? "未命名",
+    task_description:
+      row.task_description ?? row.taskDescription ?? row.preset_scenario ?? row.presetScenario ?? "—",
+    creator_type: creatorType,
+    member: isSelf
+      ? studentName
+        ? `自研课题·${studentName}`
+        : "自研课题"
+      : teacherName
+        ? `教学任务·${teacherName}`
+        : "教学任务",
+    classes_text: formatAssignedClasses(assignedClasses),
+    updated_at: formatDate(row.create_time ?? row.createTime),
+  };
+}
+async function loadRecentTasks() {
+  loading.value = true;
+  try {
+    const params = { page_num: 1, page_size: 6 };
+    // admin/学生走 /student/list（admin 分支看全部）；教师走 /list（所管班级聚合）
+    const res = isTeacher.value ? await listTeacherTask(params) : await listStudentTask(params);
+    const rows = res?.data?.rows ?? [];
+    recentTasks.value = rows.map(normalizeTaskRow);
+  } finally {
+    loading.value = false;
+  }
+}
+function goAllProjects() {
+  // 教师 → 教学任务管理；admin/学生 → 我的任务（admin 在该页看全部）
+  router.push(isTeacher.value ? "/learning/task-manage" : "/learning/my-tasks");
+}
+
+onMounted(() => {
+  loadRecentTasks();
+});
 
 defineOptions({
   name: "DashBoard",
@@ -284,118 +333,7 @@ const projectNotice = [
   },
 ];
 
-const activities = [
-  {
-    id: "trend-1",
-    updatedAt: "几秒前",
-    user: {
-      name: "曲丽丽",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/BiazfanxmamNRoxxVxka.png",
-    },
-    group: {
-      name: "高逼格设计天团",
-      link: "http://github.com/",
-    },
-    project: {
-      name: "六月迭代",
-      link: "http://github.com/",
-    },
-    template1: "在",
-    template2: "新建项目",
-  },
-  {
-    id: "trend-2",
-    updatedAt: "几秒前",
-    user: {
-      name: "付小小",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/cnrhVkzwxjPwAaCfPbdc.png",
-    },
-    group: {
-      name: "高逼格设计天团",
-      link: "http://github.com/",
-    },
-    project: {
-      name: "六月迭代",
-      link: "http://github.com/",
-    },
-    template1: "在",
-    template2: "新建项目",
-  },
-  {
-    id: "trend-3",
-    updatedAt: "几秒前",
-    user: {
-      name: "林东东",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/gaOngJwsRYRaVAuXXcmB.png",
-    },
-    group: {
-      name: "中二少女团",
-      link: "http://github.com/",
-    },
-    project: {
-      name: "六月迭代",
-      link: "http://github.com/",
-    },
-    template1: "在",
-    template2: "新建项目",
-  },
-  {
-    id: "trend-4",
-    updatedAt: "几秒前",
-    user: {
-      name: "周星星",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/WhxKECPNujWoWEFNdnJE.png",
-    },
-    group: {
-      name: "5 月日常迭代",
-      link: "http://github.com/",
-    },
-    template1: "将",
-    template2: "更新至已发布状态",
-  },
-  {
-    id: "trend-5",
-    updatedAt: "几秒前",
-    user: {
-      name: "朱偏右",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/ubnKSIfAJTxIgXOKlciN.png",
-    },
-    group: {
-      name: "工程效能",
-      link: "http://github.com/",
-    },
-    project: {
-      name: "留言",
-      link: "http://github.com/",
-    },
-    template1: "在",
-    template2: "发布了",
-  },
-  {
-    id: "trend-6",
-    updatedAt: "几秒前",
-    user: {
-      name: "乐哥",
-      avatar:
-        "https://gw.alipayobjects.com/zos/rmsportal/jZUIxmJycoymBprLOUbT.png",
-    },
-    group: {
-      name: "程序员日常",
-      link: "http://github.com/",
-    },
-    project: {
-      name: "品牌迭代",
-      link: "http://github.com/",
-    },
-    template1: "在",
-    template2: "新建项目",
-  },
-];
+// 动态数据已迁移至 ActivityWall 组件（按需调用 /learning/activity/recent）
 
 const radarContainer = ref();
 const radarData = [
