@@ -152,3 +152,9 @@ cython_debug/
 .opencode/
 .qoder/
 .trae/
+
+# === 部署打包产物 / 调试截图（不入库）===
+*.tar.gz
+page*.png
+chrome-a11y-cdp/
+Aspose.Words.*.png

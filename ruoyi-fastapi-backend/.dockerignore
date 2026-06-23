@@ -1,0 +1,25 @@
+# 打镜像时排除这些，避免缓存污染和镜像过大
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+build/
+*.egg-info/
+ruoyi_fastapi_backend_cli.egg-info/
+logs/
+.idea/
+.vscode/
+.claude/
+.DS_Store
+# 文档/笔记不入镜像
+知识/
+fanshenxingwendang/
+tests/
+*.md
+.git/
+.gitignore
+# 注意：不要忽略 .env.prod，启动需要它

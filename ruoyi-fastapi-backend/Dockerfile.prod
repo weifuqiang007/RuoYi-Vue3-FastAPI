@@ -1,0 +1,23 @@
+# 线上生产镜像（PostgreSQL + .env.prod）
+# 用法（在服务器后端源码目录执行）：
+#   docker build -f Dockerfile.prod -t ruoyi-backend:prod .
+#   docker run -d --name ruoyi-backend -p 15349:9099 \
+#     --add-host=host.docker.internal:host-gateway \
+#     -v $(pwd)/logs:/app/logs \
+#     --restart unless-stopped ruoyi-backend:prod
+FROM python:3.10
+
+WORKDIR /app
+
+# 先装依赖（单独一层，改代码不会重装，利用 docker 缓存）
+COPY requirements-pg.txt .
+RUN pip install --no-cache-dir -r requirements-pg.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 复制源码并安装项目本体（这一步会注册 `ruoyi` 命令，原 Dockerfile.pg 漏了）
+COPY . .
+RUN pip install --no-cache-dir . -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+EXPOSE 9099
+
+# 以 prod 环境启动，自动加载 .env.prod
+CMD ["ruoyi", "app", "run", "--env=prod"]

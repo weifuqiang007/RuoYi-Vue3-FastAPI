@@ -18,8 +18,7 @@
         <el-statistic title="总学生数" :value="overview.total_students" />
       </el-col>
       <el-col :span="4">
-        <el-statistic title="情境区">
-          :value="stageCount('scenario')" />
+        <el-statistic title="情境区" :value="stageCount('scenario')" />
       </el-col>
       <el-col :span="4">
         <el-statistic title="决策区" :value="stageCount('decision')" />

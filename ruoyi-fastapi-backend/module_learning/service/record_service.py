@@ -131,7 +131,7 @@ class RecordService:
     def _record_to_dict(cls, record: EduLearningRecord,
                         task: EduTask | None = None,
                         teacher_name: str | None = None,
-                        student_name: str | None = None) -> dict:
+                        student_name: str | None = None,) -> dict:
         """
         将学习记录转为前端可读的字典。
         - task: 关联的任务对象（来自JOIN查询），列表查询时传入，详情查询时不传
@@ -150,6 +150,7 @@ class RecordService:
             'creator_type': task.creator_type if task else None,
             'creator_name': creator_name,
             'preset_scenario': task.preset_scenario if task else None,
+            'task_description': task.task_description if task else None,
             'deadline': str(task.deadline) if task and task.deadline else None,
             'user_id': record.user_id,
             'current_stage': record.current_stage,

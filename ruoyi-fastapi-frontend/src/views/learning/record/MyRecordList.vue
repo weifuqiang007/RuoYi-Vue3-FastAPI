@@ -46,13 +46,14 @@
 
     <el-table v-loading="loading" :data="recordList">
       <el-table-column label="记录ID" prop="record_id" width="90" />
-      <el-table-column label="课题名称" min-width="220" show-overflow-tooltip>
+      <el-table-column label="课题名称" width="140" show-overflow-tooltip>
         <template #default="scope">
           <el-button link type="primary" @click="enter(scope.row)">
             {{ scope.row.task_name || '-' }}
           </el-button>
         </template>
       </el-table-column>
+      <el-table-column label="课题描述" prop="task_description" min-width="200" show-overflow-tooltip />
       <el-table-column label="创建者" prop="creator_name" width="120" show-overflow-tooltip />
       <el-table-column label="课题类型" width="110" align="center">
         <template #default="scope">
@@ -107,6 +108,7 @@ function normalizeRow(row) {
   return {
     record_id: row.record_id ?? row.recordId,
     task_name: row.task_name ?? row.taskName ?? (row.task_id ? `任务#${row.task_id}` : ''),
+    task_description: row.task_description ?? row.taskDescription,
     creator_type: row.creator_type ?? row.creatorType,
     creator_name: row.creator_name ?? row.creatorName,
     deadline: row.deadline,
