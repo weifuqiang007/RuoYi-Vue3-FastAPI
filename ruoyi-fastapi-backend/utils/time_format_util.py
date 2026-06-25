@@ -96,6 +96,25 @@ class TimeFormatUtil:
             return time_str
 
     @classmethod
+    def parse_datetime(cls, time_info: str | datetime | None) -> datetime | Any:
+        """
+        将时间字符串解析为 datetime 对象，供与数据库 TIMESTAMP 列做范围比较。
+
+        :param time_info: 时间字符串或 datetime 对象（前端时间区间筛选传入的多为字符串）
+        :return: datetime 对象；已是 datetime 或解析失败时原样返回
+        背景：asyncpg 会把 Python str 参数绑定为 VARCHAR，直接用 TIMESTAMP >= VARCHAR 会触发
+              'operator does not exist: timestamp without time zone >= character varying'。
+        """
+        if isinstance(time_info, datetime):
+            return time_info
+        if not time_info:
+            return time_info
+        try:
+            return parse(time_info)
+        except Exception:
+            return time_info
+
+    @classmethod
     def format_time_dict(cls, time_dict: dict, fmt: str = '%Y-%m-%d %H:%M:%S') -> dict:
         """
         格式化时间字典

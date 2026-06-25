@@ -1,23 +1,77 @@
 <template>
   <div class="app-container">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
-      <el-form-item label="任务名称" prop="taskName">
+      <el-form-item label="任务名称" prop="task_name">
         <el-input
-          v-model="queryParams.taskName"
+          v-model="queryParams.task_name"
           placeholder="请输入任务名称"
           clearable
-          style="width: 220px"
+          style="width: 200px"
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item label="类型">
-        <el-select v-model="creatorTypeFilter" placeholder="全部" clearable style="width: 160px">
+      <el-form-item label="学生姓名" prop="student_name">
+        <el-input
+          v-model="queryParams.student_name"
+          placeholder="自研课题创建者"
+          clearable
+          style="width: 180px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="归属班级" prop="dept_id">
+        <el-select v-model="queryParams.dept_id" placeholder="请选择班级" clearable filterable style="width: 200px">
+          <el-option v-for="d in deptOptions" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="类型" prop="creator_type">
+        <el-select v-model="queryParams.creator_type" placeholder="全部" clearable style="width: 140px">
           <el-option label="教学任务" value="0" />
           <el-option label="自研课题" value="1" />
         </el-select>
       </el-form-item>
+      <el-form-item label="发布教师" prop="teacher_name">
+        <el-input
+          v-model="queryParams.teacher_name"
+          placeholder="请输入教师姓名"
+          clearable
+          style="width: 160px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="任务简述" prop="task_description">
+        <el-input
+          v-model="queryParams.task_description"
+          placeholder="请输入任务简述"
+          clearable
+          style="width: 200px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="发布时间">
+        <el-date-picker
+          v-model="createTimeRange"
+          type="daterange"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          range-separator="-"
+          start-placeholder="开始时间"
+          end-placeholder="结束时间"
+          style="width: 340px"
+        />
+      </el-form-item>
+      <el-form-item label="截止时间">
+        <el-date-picker
+          v-model="deadlineRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          range-separator="-"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 260px"
+        />
+      </el-form-item>
       <el-form-item label="状态" prop="status">
-        <el-select v-model="queryParams.status" placeholder="状态" clearable style="width: 160px">
+        <el-select v-model="queryParams.status" placeholder="全部" clearable style="width: 140px">
           <el-option label="草稿" value="0" />
           <el-option label="已发布" value="1" />
           <el-option label="已关闭" value="2" />
@@ -35,7 +89,7 @@
       </el-col>
     </el-row>
 
-    <el-table v-loading="loading" :data="displayTaskList">
+    <el-table v-loading="loading" :data="taskList">
       <el-table-column label="类型" width="100" align="center">
         <template #default="scope">
           <el-tag v-if="String(scope.row.creator_type) === '1'" type="success">自研课题</el-tag>
@@ -130,8 +184,8 @@
     <pagination
       v-show="total > 0"
       :total="total"
-      v-model:page="queryParams.pageNum"
-      v-model:limit="queryParams.pageSize"
+      v-model:page="queryParams.page_num"
+      v-model:limit="queryParams.page_size"
       @pagination="getList"
     />
 
@@ -194,12 +248,18 @@ const loading = ref(false)
 const showSearch = ref(true)
 const taskList = ref([])
 const total = ref(0)
-const creatorTypeFilter = ref(undefined)
+const deadlineRange = ref([])
+const createTimeRange = ref([])
 
 const queryParams = ref({
-  pageNum: 1,
-  pageSize: 10,
-  taskName: undefined,
+  page_num: 1,
+  page_size: 10,
+  creator_type: undefined,
+  task_name: undefined,
+  dept_id: undefined,
+  teacher_name: undefined,
+  student_name: undefined,
+  task_description: undefined,
   status: undefined
 })
 
@@ -315,12 +375,39 @@ function statusTagType(v) {
 
 async function getDeptOptions() {
   const res = await listDept()
-  deptOptions.value = res.data || []
+  const data = res?.data
+  deptOptions.value = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []
+}
+
+function buildQueryParams() {
+  const q = queryParams.value
+  const params = {
+    page_num: q.page_num,
+    page_size: q.page_size
+  }
+  if (q.creator_type) params.creator_type = q.creator_type
+  if (q.task_name) params.task_name = q.task_name
+  if (q.teacher_name) params.teacher_name = q.teacher_name
+  if (q.student_name) params.student_name = q.student_name
+  if (q.task_description) params.task_description = q.task_description
+  if (q.status) params.status = q.status
+  if (q.dept_id !== undefined && q.dept_id !== null && q.dept_id !== '') {
+    params.dept_id = q.dept_id
+  }
+  if (Array.isArray(deadlineRange.value) && deadlineRange.value.length === 2) {
+    params.deadline_begin = deadlineRange.value[0]
+    params.deadline_end = deadlineRange.value[1]
+  }
+  if (Array.isArray(createTimeRange.value) && createTimeRange.value.length === 2) {
+    params.create_time_begin = createTimeRange.value[0]
+    params.create_time_end = createTimeRange.value[1]
+  }
+  return params
 }
 
 function getList() {
   loading.value = true
-  listTeacherTask(queryParams.value)
+  listTeacherTask(buildQueryParams())
     .then(res => {
       const data = res?.data ?? {}
       const rows = Array.isArray(data.rows) ? data.rows : Array.isArray(res?.rows) ? res.rows : []
@@ -333,23 +420,18 @@ function getList() {
     })
 }
 
-const displayTaskList = computed(() => {
-  const filter = creatorTypeFilter.value
-  if (!filter) return taskList.value
-  return taskList.value.filter(item => String(item.creator_type) === String(filter))
-})
-
 function handleQuery() {
-  queryParams.value.pageNum = 1
+  queryParams.value.page_num = 1
   getList()
 }
 
 function resetQuery() {
-  queryParams.value.taskName = undefined
-  queryParams.value.status = undefined
-  creatorTypeFilter.value = undefined
+  deadlineRange.value = []
+  createTimeRange.value = []
   queryRef.value?.resetFields?.()
-  handleQuery()
+  queryParams.value.page_num = 1
+  queryParams.value.page_size = 10
+  getList()
 }
 
 function handleAdd() {
@@ -447,6 +529,7 @@ function openAssignedClassDialog(row) {
 }
 
 onMounted(() => {
+  getDeptOptions()
   getList()
 })
 </script>

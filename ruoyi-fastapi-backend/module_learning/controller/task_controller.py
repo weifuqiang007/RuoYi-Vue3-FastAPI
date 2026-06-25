@@ -26,16 +26,34 @@ task_controller = APIRouterPro(
 
 class TaskController:
 
+
     @staticmethod
-    @task_controller.get('/list', summary='教师任务列表（含所管班级学生自研课题）')
-    async def get_teacher_tasks(
+    @task_controller.get('/list', summary='任务列表（多角色：admin/教师/学生）')
+    async def get_tasks(
         request: Request,
         query_db: Annotated[AsyncSession, DBSessionDependency()],
         current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-        page_num: int = 1,
-        page_size: int = 10,
+        query: Annotated[TaskListQueryModel, Query()],
     ) -> Response:
-        result = await TaskService.get_teacher_tasks(query_db, current_user.user.user_id, page_num, page_size)
+        """
+        统一任务列表，不限制教师、学生、admin 用户查看，按角色返回不同范围的数据：
+        - admin：可看见所有班级、所有任务及发布时间，分页展示，按创建时间降序（最近的在前）。
+        - 教师：可按任务名称、学生姓名、班级、发布时间等多条件查询；只展示自己班级的任务
+          （含学生自研课题），任务未被删除。
+        - 学生：只展示当前所属班级的任务，或自己发布的自研课题。
+
+        查询选项：班级、任务名称、发布时间（区间）等多条件查询，全部可选，不传则不过滤。
+        """
+        # 分页参数从模型中取出
+        page_num = query.page_num
+        page_size = query.page_size
+        # 只传有值的过滤条件
+        filters = query.model_dump(exclude_none=True, exclude={'page_num', 'page_size'})
+        result = await TaskService.get_task_list(
+            query_db, current_user.user.user_id,
+            roles=current_user.roles, filters=filters or None,
+            page_num=page_num, page_size=page_size,
+        )
         return ResponseUtil.success(data=result)
 
     @staticmethod

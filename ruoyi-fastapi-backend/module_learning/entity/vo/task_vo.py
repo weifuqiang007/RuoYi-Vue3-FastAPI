@@ -78,16 +78,17 @@ class StudentTaskCreateModel(BaseModel):
 
 
 class TaskListQueryModel(BaseModel):
-    """任务列表查询条件"""
-    creator_type: Optional[str] = Field(None, description="任务类型：'0'教学任务 / '1'自研课题")
+    """任务列表查询条件（admin/教师/学生通用，多条件组合查询）"""
+    creator_type: Optional[str] = Field(None, description="任务类型：'0'教学任务 / '1'自研课题（精确匹配）")
     task_name: Optional[str] = Field(None, description='任务名称（模糊匹配）')
-    dept_id: Optional[int] = Field(None, description='归属班级ID')
+    dept_id: Optional[int] = Field(None, description='归属班级ID（精确匹配）')
     teacher_name: Optional[str] = Field(None, description='发布教师姓名（模糊匹配）')
+    student_name: Optional[str] = Field(None, description='学生姓名（模糊匹配，匹配自研课题创建者昵称）')
     task_description: Optional[str] = Field(None, description='任务简述（模糊匹配）')
-    deadline_begin: Optional[str] = Field(None, description='截止时间起始')
-    deadline_end: Optional[str] = Field(None, description='截止时间结束')
-    create_time_begin: Optional[str] = Field(None, description='创建时间起始')
-    create_time_end: Optional[str] = Field(None, description='创建时间结束')
-    status: Optional[str] = Field(None, description='发布状态')
+    deadline_begin: Optional[str] = Field(None, description='截止时间区间起始（YYYY-MM-DD，范围查询）')
+    deadline_end: Optional[str] = Field(None, description='截止时间区间结束（YYYY-MM-DD，范围查询）')
+    create_time_begin: Optional[str] = Field(None, description='发布/创建时间区间起始（YYYY-MM-DD HH:MM:SS，范围查询）')
+    create_time_end: Optional[str] = Field(None, description='发布/创建时间区间结束（YYYY-MM-DD HH:MM:SS，范围查询）')
+    status: Optional[str] = Field(None, description='发布状态：0草稿 1已发布 2已关闭（精确匹配）')
     page_num: int = Field(default=1, description='当前页码')
     page_size: int = Field(default=10, description='每页记录数')

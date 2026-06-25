@@ -31,7 +31,7 @@ class TaskService:
             task_name=data.task_name,
             task_description=data.task_description,
             creator_type= '0' if is_teacher else '1',
-            # 教师：通过 teacher_id 字段记录，这样 get_teacher_all_tasks 的 teacher_id==teacher_id 条件能匹配到
+            # 教师：通过 teacher_id 字段记录，这样 get_all_tasks 的 teacher_id==teacher_id 条件能匹配到
             # 学生/管理员：通过 student_id 字段记录，这样 get_student_self_tasks 能匹配到
             teacher_id=user_id if is_teacher else None,
             student_id=user_id if not is_teacher else None,
@@ -156,26 +156,45 @@ class TaskService:
         }
 
     @classmethod
-    async def get_teacher_tasks(cls, db: AsyncSession, teacher_id: int, page_num: int = 1, page_size: int = 10) -> dict:
+    async def get_task_list(cls, db: AsyncSession, user_id: int, roles: list | None,
+                            filters: dict | None = None, page_num: int = 1, page_size: int = 10) -> dict:
         """
-        教师任务列表（V1.1 统一版）：
-        包含教师自己创建的任务 + 所管班级学生的自研课题，每个任务携带分配的班级信息。
+        统一任务列表（V1.4 多角色版）：
+        - admin：看到所有任务（教师任务 + 学生自研课题），支持多条件过滤。
+        - teacher：自己创建的任务 + 所管班级学生的自研课题，支持多条件过滤。
+        - student：当前班级指派的任务 + 自己发布的自研课题（按班级/自身范围展示）。
+        统一按 create_time 降序、分页返回，每条任务携带分配的班级信息。
         """
+        role_keys = roles or []
 
-        teacher_classes = await EduDao.get_teacher_classes(db, teacher_id)
-        class_ids = [tc['class_id'] for tc in teacher_classes]
-        rows_data = await TaskDao.get_teacher_all_tasks(db, teacher_id, class_ids)
-        # 收集所有 task_id，批量查班级
-        task_ids = [row[0].task_id for row in rows_data]
-        class_mapping = await TaskDao.get_assigned_classes_batch(db, task_ids)
-        rows = [
-            cls._task_to_dict(
-                row[0], teacher_name=row[1], student_name=row[2],
-                assigned_classes=class_mapping.get(row[0].task_id, [])
-            )
-            for row in rows_data
-        ]
-        return PageUtil.get_page_obj(rows, page_num, page_size).model_dump()
+        # 教师视角：自己的任务 + 所管班级学生自研课题，支持过滤
+        if 'teacher' in role_keys and 'admin' not in role_keys:
+            teacher_classes = await EduDao.get_teacher_classes(db, user_id)
+            class_ids = [tc['class_id'] for tc in teacher_classes]
+            rows_data = await TaskDao.get_all_tasks(db, user_id, class_ids, filters)
+            # 收集所有 task_id，批量查班级
+            task_ids = [row[0].task_id for row in rows_data]
+            class_mapping = await TaskDao.get_assigned_classes_batch(db, task_ids)
+            rows = [
+                cls._task_to_dict(
+                    row[0], teacher_name=row[1], student_name=row[2],
+                    assigned_classes=class_mapping.get(row[0].task_id, []),
+                )
+                for row in rows_data
+            ]
+            return PageUtil.get_page_obj(rows, page_num, page_size).model_dump()
+
+        # admin / student：复用学生侧列表逻辑
+        # admin 不限定 class_id（看全部）；student 取自己所属班级（一个用户仅归属一个班级）
+        if 'admin' in role_keys:
+            class_id = None
+        else:
+            profile = await EduDao.get_student_profile_by_user_id(db, user_id)
+            class_id = profile.class_id if profile else None
+        return await cls.get_student_tasks(
+            db, user_id, class_id, roles=roles, filters=filters,
+            page_num=page_num, page_size=page_size,
+        )
 
     @classmethod
     async def get_student_tasks(cls, db: AsyncSession, student_id: int, class_id: int | None,

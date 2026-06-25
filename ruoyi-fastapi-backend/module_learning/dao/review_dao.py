@@ -8,6 +8,7 @@ from module_admin.entity.do.user_do import SysUser
 from module_learning.entity.do.record_do import EduLearningRecord
 from module_learning.entity.do.review_do import EduReview, EduReviewDialogue
 from module_learning.entity.do.task_do import EduTask
+from utils.time_format_util import TimeFormatUtil
 
 
 class ReviewDao:
@@ -38,9 +39,10 @@ class ReviewDao:
         if f.get('class_id'):
             conditions.append(EduStudentProfile.class_id == f['class_id'])
         if f.get('submit_time_begin'):
-            conditions.append(EduLearningRecord.submit_time >= f['submit_time_begin'])
+            # 字符串必须先解析为 datetime，否则 asyncpg 绑定为 VARCHAR 与 TIMESTAMP 比较会类型不匹配
+            conditions.append(EduLearningRecord.submit_time >= TimeFormatUtil.parse_datetime(f['submit_time_begin']))
         if f.get('submit_time_end'):
-            conditions.append(EduLearningRecord.submit_time <= f['submit_time_end'])
+            conditions.append(EduLearningRecord.submit_time <= TimeFormatUtil.parse_datetime(f['submit_time_end']))
         # 批阅状态筛选
         rs = f.get('review_status')
         if rs == 'commented':

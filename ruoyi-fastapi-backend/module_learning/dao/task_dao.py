@@ -5,6 +5,7 @@ from sqlalchemy.orm import aliased
 from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.user_do import SysUser
 from module_learning.entity.do.task_do import EduTask, EduTaskClass
+from utils.time_format_util import TimeFormatUtil
 
 
 class TaskDao:
@@ -33,10 +34,14 @@ class TaskDao:
         return list(result.scalars().all())
 
     @classmethod
-    async def get_teacher_all_tasks(cls, db: AsyncSession, teacher_id: int, class_ids: list[int]) -> list:
+    async def get_all_tasks(cls, db: AsyncSession, teacher_id: int, class_ids: list[int],
+                            filters: dict | None = None) -> list:
         """
-        教师视角：获取自己创建的任务 + 所管班级学生的自研课题。
+        教师视角：获取自己创建的任务 + 所管班级学生的自研课题，支持多条件过滤。
         返回 [(EduTask, teacher_nick_name, student_nick_name), ...]
+        filters 支持的 key：creator_type、task_name、teacher_name、student_name、task_description、
+            dept_id、status、deadline_begin/end、create_time_begin/end（与 get_all_tasks_for_admin 一致）。
+        filters 为 None 时退化为原始查询（向后兼容）。
         """
         from module_admin.entity.do.edu_do import EduStudentProfile
         TeacherUser = aliased(SysUser)
@@ -45,17 +50,56 @@ class TaskDao:
             select(EduStudentProfile.user_id)
             .where(EduStudentProfile.class_id.in_(class_ids))
         )
+        conditions = [
+            EduTask.del_flag == '0',
+            or_(
+                EduTask.teacher_id == teacher_id,
+                EduTask.student_id.in_(student_subq),
+            ),
+        ]
+        f = filters or {}
+        # 任务类型
+        if f.get('creator_type'):
+            conditions.append(EduTask.creator_type == f['creator_type'])
+        # 任务名称模糊匹配
+        if f.get('task_name'):
+            conditions.append(EduTask.task_name.ilike(f"%{f['task_name']}%"))
+        # 任务简述模糊匹配
+        if f.get('task_description'):
+            conditions.append(EduTask.task_description.ilike(f"%{f['task_description']}%"))
+        # 发布状态
+        if f.get('status'):
+            conditions.append(EduTask.status == f['status'])
+        # 教师姓名模糊匹配
+        if f.get('teacher_name'):
+            conditions.append(TeacherUser.nick_name.ilike(f"%{f['teacher_name']}%"))
+        # 学生姓名模糊匹配（匹配自研课题创建者昵称）
+        if f.get('student_name'):
+            conditions.append(StudentUser.nick_name.ilike(f"%{f['student_name']}%"))
+        # 截止时间范围
+        if f.get('deadline_begin'):
+            # 字符串必须先解析为 datetime，否则 asyncpg 绑定为 VARCHAR 与 TIMESTAMP 比较会类型不匹配
+            conditions.append(EduTask.deadline >= TimeFormatUtil.parse_datetime(f['deadline_begin']))
+        if f.get('deadline_end'):
+            conditions.append(EduTask.deadline <= TimeFormatUtil.parse_datetime(f['deadline_end']))
+        # 发布/创建时间范围
+        if f.get('create_time_begin'):
+            conditions.append(EduTask.create_time >= TimeFormatUtil.parse_datetime(f['create_time_begin']))
+        if f.get('create_time_end'):
+            conditions.append(EduTask.create_time <= TimeFormatUtil.parse_datetime(f['create_time_end']))
+        # 归属班级（子查询 edu_task_class）
+        if f.get('dept_id'):
+            dept_subq = (
+                select(EduTaskClass.task_id)
+                .where(EduTaskClass.dept_id == f['dept_id'])
+            )
+            conditions.append(EduTask.task_id.in_(dept_subq))
+
         result = await db.execute(
             select(EduTask, TeacherUser.nick_name, StudentUser.nick_name)
             .outerjoin(TeacherUser, EduTask.teacher_id == TeacherUser.user_id)
             .outerjoin(StudentUser, EduTask.student_id == StudentUser.user_id)
-            .where(
-                EduTask.del_flag == '0',
-                or_(
-                    EduTask.teacher_id == teacher_id,
-                    EduTask.student_id.in_(student_subq),
-                )
-            )
+            .where(*conditions)
             .order_by(desc(EduTask.create_time))
         )
         return list(result.all())
@@ -157,7 +201,7 @@ class TaskDao:
 
         conditions = [EduTask.del_flag == '0']
         f = filters or {}
-
+        #todo 这里只能这样去写吗？有没有更优雅的写法？
         # 任务类型
         if f.get('creator_type'):
             conditions.append(EduTask.creator_type == f['creator_type'])
@@ -173,16 +217,20 @@ class TaskDao:
         # 教师姓名模糊匹配（JOIN TeacherUser 后过滤）
         if f.get('teacher_name'):
             conditions.append(TeacherUser.nick_name.ilike(f"%{f['teacher_name']}%"))
+        # 学生姓名模糊匹配（JOIN StudentUser 后过滤，匹配自研课题创建者昵称）
+        if f.get('student_name'):
+            conditions.append(StudentUser.nick_name.ilike(f"%{f['student_name']}%"))
         # 截止时间范围
         if f.get('deadline_begin'):
-            conditions.append(EduTask.deadline >= f['deadline_begin'])
+            # 字符串必须先解析为 datetime，否则 asyncpg 绑定为 VARCHAR 与 TIMESTAMP 比较会类型不匹配
+            conditions.append(EduTask.deadline >= TimeFormatUtil.parse_datetime(f['deadline_begin']))
         if f.get('deadline_end'):
-            conditions.append(EduTask.deadline <= f['deadline_end'])
+            conditions.append(EduTask.deadline <= TimeFormatUtil.parse_datetime(f['deadline_end']))
         # 创建时间范围
         if f.get('create_time_begin'):
-            conditions.append(EduTask.create_time >= f['create_time_begin'])
+            conditions.append(EduTask.create_time >= TimeFormatUtil.parse_datetime(f['create_time_begin']))
         if f.get('create_time_end'):
-            conditions.append(EduTask.create_time <= f['create_time_end'])
+            conditions.append(EduTask.create_time <= TimeFormatUtil.parse_datetime(f['create_time_end']))
         # 归属班级（子查询 edu_task_class）
         if f.get('dept_id'):
             dept_subq = (

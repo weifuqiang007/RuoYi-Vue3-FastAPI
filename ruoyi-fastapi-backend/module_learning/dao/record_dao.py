@@ -5,6 +5,7 @@ from sqlalchemy.orm import aliased
 from module_admin.entity.do.user_do import SysUser
 from module_learning.entity.do.record_do import EduLearningRecord
 from module_learning.entity.do.task_do import EduTask
+from utils.time_format_util import TimeFormatUtil
 
 
 class RecordDao:
@@ -64,16 +65,16 @@ class RecordDao:
         # 创建者类型筛选
         if f.get('creator_type'):
             conditions.append(EduTask.creator_type == f['creator_type'])
-        # 创建时间范围
+        # 创建时间范围（字符串必须先解析为 datetime，否则 asyncpg 绑定为 VARCHAR 与 TIMESTAMP 比较会类型不匹配）
         if f.get('create_time_begin'):
-            conditions.append(EduLearningRecord.create_time >= f['create_time_begin'])
+            conditions.append(EduLearningRecord.create_time >= TimeFormatUtil.parse_datetime(f['create_time_begin']))
         if f.get('create_time_end'):
-            conditions.append(EduLearningRecord.create_time <= f['create_time_end'])
+            conditions.append(EduLearningRecord.create_time <= TimeFormatUtil.parse_datetime(f['create_time_end']))
         # 截止时间范围
         if f.get('deadline_begin'):
-            conditions.append(EduTask.deadline >= f['deadline_begin'])
+            conditions.append(EduTask.deadline >= TimeFormatUtil.parse_datetime(f['deadline_begin']))
         if f.get('deadline_end'):
-            conditions.append(EduTask.deadline <= f['deadline_end'])
+            conditions.append(EduTask.deadline <= TimeFormatUtil.parse_datetime(f['deadline_end']))
 
         result = await db.execute(
             select(EduLearningRecord, EduTask, TeacherUser.nick_name, StudentUser.nick_name)
