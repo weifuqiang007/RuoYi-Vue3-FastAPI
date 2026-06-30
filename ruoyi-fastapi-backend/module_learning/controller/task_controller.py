@@ -14,7 +14,7 @@ from module_learning.service.task_service import TaskService
 from utils.response_util import ResponseUtil
 
 
-from module_admin.dao.edu_dao import EduDao
+from module_learning.dao.edu_dao import EduDao
 
 task_controller = APIRouterPro(
     prefix='/learning/task',

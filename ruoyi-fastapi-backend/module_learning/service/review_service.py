@@ -3,9 +3,10 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from module_admin.dao.edu_dao import EduDao
+from module_learning.dao.edu_dao import EduDao
+from module_learning.role_constants import LearningRoles
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.edu_do import EduStudentProfile
+from module_learning.entity.do.edu_do import EduStudentProfile
 from module_admin.entity.do.user_do import SysUser
 from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_learning.dao.decision_dao import DecisionDao
@@ -330,7 +331,7 @@ class ReviewService:
     async def _managed_student_ids(cls, db: AsyncSession, current_user: CurrentUserModel) -> list[int] | None:
         """当前教师所管班级学生的 user_id 列表；admin 返回 None（不过滤）。"""
         roles = current_user.roles or []
-        if 'admin' in roles:
+        if LearningRoles.is_admin(roles):
             return None
         classes = await EduDao.get_teacher_classes(db, current_user.user.user_id)
         class_ids = [c['class_id'] for c in classes]
@@ -343,7 +344,7 @@ class ReviewService:
     async def _check_teacher_permission(cls, db: AsyncSession, record, current_user: CurrentUserModel):
         """校验当前教师是否有权查看/批阅该 record（须属于所管班级学生）。admin 放行。"""
         roles = current_user.roles or []
-        if 'admin' in roles:
+        if LearningRoles.is_admin(roles):
             return
         student_ids = await cls._managed_student_ids(db, current_user)
         if record.user_id not in (student_ids or []):

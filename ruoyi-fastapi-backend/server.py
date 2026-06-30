@@ -10,13 +10,14 @@ from common.constant import LockConstant
 from common.router import auto_register_routers
 from config.env import AppConfig
 from config.get_db import close_async_engine, init_create_table
+from config.get_minio import MinioUtil
 from config.get_redis import RedisUtil
 from config.get_scheduler import SchedulerUtil
 from exceptions.handle import handle_exception
 from middlewares.handle import handle_middleware
 from module_admin.service.log_service import LogAggregatorService
-from module_rag.utils.minio_client import MinioClient
 from sub_applications.handle import handle_sub_applications
+from common.lifecycle import LifecycleHooks
 from utils.common_util import worship
 from utils.server_util import APIDocsUtil, IPUtil, StartupUtil
 from utils.transport_crypto_util import TransportKeyProvider
@@ -31,20 +32,6 @@ async def _start_background_tasks(app: FastAPI) -> None:
     """
     await SchedulerUtil.init_system_scheduler(app.state.redis)
     app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
-
-
-def _init_minio() -> None:
-    """
-    启动时预热 MinIO 客户端：连接并确保存储桶存在。
-
-    MinIO 是 RAG 模块依赖，连接失败不应阻断整个应用启动，仅记录警告；
-    真正使用（上传/下载）时仍会再次尝试连接并在失败时抛出友好错误。
-    """
-    try:
-        MinioClient.get_instance()
-        logger.info('MinIO: 启动初始化完成')
-    except Exception as e:
-        logger.warning(f'MinIO: 启动初始化失败（RAG 文件功能将不可用）：{e}')
 
 
 async def _stop_background_tasks(app: FastAPI) -> None:
@@ -108,7 +95,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             worship()
         TransportKeyProvider.validate_runtime_configuration()
         await init_create_table()
-        _init_minio()
+        # MinIO 对象存储预热（fail-soft：连不上仅警告，不阻断启动；与 Redis/Scheduler 同列的框架基础设施）
+        try:
+            MinioUtil.get_instance()
+        except Exception as e:
+            logger.warning(f'MinIO 预热失败（对象存储功能将不可用）: {e}')
+        await LifecycleHooks.run_startup(app)
         await RedisUtil.check_redis_connection(app.state.redis, log_enabled=startup_log_enabled)
         await RedisUtil.init_sys_dict(app.state.redis)
         await RedisUtil.init_sys_config(app.state.redis)
@@ -179,6 +171,8 @@ def create_app() -> FastAPI:
     handle_middleware(app)
     # 加载全局异常处理方法
     handle_exception(app)
+    # 发现并加载业务模块的生命周期钩子（扫描 module_*/hooks.py，触发 @register_startup 自注册）
+    LifecycleHooks.discover_and_load()
     # 自动注册路由
     auto_register_routers(app)
 

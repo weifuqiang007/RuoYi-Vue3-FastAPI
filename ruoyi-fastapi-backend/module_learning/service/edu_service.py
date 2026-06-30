@@ -6,13 +6,14 @@ from datetime import datetime
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
-from module_admin.dao.edu_dao import EduDao
+from module_learning.dao.edu_dao import EduDao
+from module_learning.role_constants import LearningRoles
 from module_admin.dao.user_dao import UserDao
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.edu_do import EduRegistrationAudit
+from module_learning.entity.do.edu_do import EduRegistrationAudit
 from module_admin.entity.do.user_do import SysUserRole
 from module_admin.service.dept_service import DeptService
-from module_admin.entity.vo.edu_vo import (
+from module_learning.entity.vo.edu_vo import (
     AuditQueryModel,
     AuditVO,
     ManagedUserAuditModel,
@@ -62,7 +63,7 @@ class EduService:
         db_user = await UserDao.add_user_dao(query_db, add_user)
         user_id = db_user.user_id
 
-        if reg.apply_role != 'student':
+        if reg.apply_role != LearningRoles.STUDENT:
             raise ServiceException(message='学生注册接口 applyRole 须为 student')
         query_db.add(SysUserRole(user_id=user_id, role_id=ROLE_ID_STUDENT))
 
@@ -80,7 +81,7 @@ class EduService:
 
         audit = EduRegistrationAudit(
             user_id=user_id,
-            apply_role='student',
+            apply_role=LearningRoles.STUDENT,
             real_name=reg.nick_name,
         )
         await EduDao.add_registration_audit(query_db, audit)
@@ -113,7 +114,7 @@ class EduService:
         db_user = await UserDao.add_user_dao(query_db, add_user)
         user_id = db_user.user_id
 
-        if reg.apply_role != 'teacher':
+        if reg.apply_role != LearningRoles.TEACHER:
             raise ServiceException(message='教师注册接口 applyRole 须为 teacher')
         query_db.add(SysUserRole(user_id=user_id, role_id=ROLE_ID_TEACHER))
 
@@ -127,7 +128,7 @@ class EduService:
 
         audit = EduRegistrationAudit(
             user_id=user_id,
-            apply_role='teacher',
+            apply_role=LearningRoles.TEACHER,
             real_name=reg.nick_name,
         )
         await EduDao.add_registration_audit(query_db, audit)
@@ -156,7 +157,7 @@ class EduService:
             {'user_id': audit.user_id, 'status': '0', 'pwd_update_date': datetime.now()},
         )
 
-        role_id = ROLE_ID_STUDENT if audit.apply_role == 'student' else ROLE_ID_TEACHER
+        role_id = ROLE_ID_STUDENT if audit.apply_role == LearningRoles.STUDENT else ROLE_ID_TEACHER
         existing_role = (await query_db.execute(
             select(SysUserRole).where(SysUserRole.user_id == audit.user_id, SysUserRole.role_id == role_id)
         )).scalars().first()
@@ -272,11 +273,11 @@ class EduService:
 
     @classmethod
     def _is_admin(cls, current_user: 'CurrentUserModel') -> bool:
-        return 'admin' in (current_user.roles or [])
+        return LearningRoles.is_admin(current_user.roles)
 
     @classmethod
     def _is_teacher(cls, current_user: 'CurrentUserModel') -> bool:
-        return 'teacher' in (current_user.roles or [])
+        return LearningRoles.is_teacher(current_user.roles)
 
     @classmethod
     async def get_managed_users(

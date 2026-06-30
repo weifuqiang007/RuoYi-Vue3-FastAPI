@@ -9,7 +9,7 @@ from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.constant import ApiNamespace
 from common.router import APIRouterPro
 from common.vo import CrudResponseModel, DataResponseModel, PageModel, ResponseBaseModel
-from module_admin.entity.vo.edu_vo import (
+from module_learning.entity.vo.edu_vo import (
     AuditActionModel,
     AuditQueryModel,
     AuditVO,
@@ -26,7 +26,7 @@ from module_admin.entity.vo.edu_vo import (
     TeacherRegisterModel,
 )
 from module_admin.entity.vo.user_vo import CurrentUserModel
-from module_admin.service.edu_service import EduService
+from module_learning.service.edu_service import EduService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 

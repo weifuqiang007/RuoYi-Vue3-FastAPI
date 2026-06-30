@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from module_admin.dao.edu_dao import EduDao
+from module_learning.dao.edu_dao import EduDao
+from module_learning.role_constants import LearningRoles
 from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_learning.dao.activity_dao import ActivityDao
 from module_learning.dao.task_dao import TaskDao
@@ -24,12 +25,7 @@ _ACTION_LABELS = {
     'review': '做了点评',
 }
 
-# 角色 → 跳转的任务列表页
-_ROLE_REDIRECT = {
-    'admin': '/learning/task-manage',
-    'teacher': '/learning/task-manage',
-    'student': '/learning/my-tasks',
-}
+# 角色 → 跳转的任务列表页：已集中到 LearningRoles.ROLE_REDIRECT（见 role_constants.py）
 
 
 def _humanize_time(dt: datetime, now: datetime) -> str:
@@ -133,29 +129,29 @@ class ActivityService:
         roles = current_user.roles or []
         user_id = current_user.user.user_id
 
-        if 'admin' in roles:
-            return {'can_access': True, 'redirect_path': _ROLE_REDIRECT['admin'], 'reason': ''}
+        if LearningRoles.is_admin(roles):
+            return {'can_access': True, 'redirect_path': LearningRoles.redirect_for(LearningRoles.ADMIN), 'reason': ''}
 
         # 任务被分配到的班级集合（dept_id）
         assigned = await TaskDao.get_assigned_classes(db, task_id)
         assigned_dept_ids = {c.get('dept_id') for c in assigned if c.get('dept_id')}
 
-        if 'teacher' in roles:
+        if LearningRoles.is_teacher(roles):
             if task.teacher_id == user_id:
-                return {'can_access': True, 'redirect_path': _ROLE_REDIRECT['teacher'], 'reason': ''}
+                return {'can_access': True, 'redirect_path': LearningRoles.redirect_for(LearningRoles.TEACHER), 'reason': ''}
             classes = await EduDao.get_teacher_classes(db, user_id)
             teacher_class_ids = {c.get('class_id') for c in (classes or []) if c.get('class_id')}
             if teacher_class_ids & assigned_dept_ids:
-                return {'can_access': True, 'redirect_path': _ROLE_REDIRECT['teacher'], 'reason': ''}
+                return {'can_access': True, 'redirect_path': LearningRoles.redirect_for(LearningRoles.TEACHER), 'reason': ''}
             return {'can_access': False, 'redirect_path': '', 'reason': '该任务不在您管理的班级范围内'}
 
-        if 'student' in roles:
+        if LearningRoles.is_student(roles):
             # 自研课题本人
             if str(task.creator_type) == '1' and task.student_id == user_id:
-                return {'can_access': True, 'redirect_path': _ROLE_REDIRECT['student'], 'reason': ''}
+                return {'can_access': True, 'redirect_path': LearningRoles.redirect_for(LearningRoles.STUDENT), 'reason': ''}
             profile = await EduDao.get_student_profile_by_user_id(db, user_id)
             if profile and profile.class_id and profile.class_id in assigned_dept_ids:
-                return {'can_access': True, 'redirect_path': _ROLE_REDIRECT['student'], 'reason': ''}
+                return {'can_access': True, 'redirect_path': LearningRoles.redirect_for(LearningRoles.STUDENT), 'reason': ''}
             return {'can_access': False, 'redirect_path': '', 'reason': '该任务未分配给您所在的班级'}
 
         return {'can_access': False, 'redirect_path': '', 'reason': '当前角色无权访问该任务'}

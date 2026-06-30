@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from exceptions.exception import ModelValidatorException
+from module_learning.role_constants import LearningRoles
 
 
 class StudentRegisterModel(BaseModel):
@@ -16,7 +17,7 @@ class StudentRegisterModel(BaseModel):
     email: str = Field(description='邮箱')
     password: str = Field(description='密码')
     confirm_password: str = Field(description='确认密码')
-    apply_role: str = Field(default='student', description='申请角色，固定值 student')
+    apply_role: str = Field(default=LearningRoles.STUDENT, description='申请角色，固定值 student')
     code: str | None = Field(default=None, description='验证码')
     uuid: str | None = Field(default=None, description='会话编号')
     major: str | None = Field(default=None, description='专业')
@@ -38,7 +39,7 @@ class TeacherRegisterModel(BaseModel):
     email: str = Field(description='邮箱')
     password: str = Field(description='密码')
     confirm_password: str = Field(description='确认密码')
-    apply_role: str = Field(default='teacher', description='申请角色，固定值 teacher')
+    apply_role: str = Field(default=LearningRoles.TEACHER, description='申请角色，固定值 teacher')
     code: str | None = Field(default=None, description='验证码')
     uuid: str | None = Field(default=None, description='会话编号')
     title: str | None = Field(default=None, description='职称')

@@ -43,7 +43,7 @@ class TaskDao:
             dept_id、status、deadline_begin/end、create_time_begin/end（与 get_all_tasks_for_admin 一致）。
         filters 为 None 时退化为原始查询（向后兼容）。
         """
-        from module_admin.entity.do.edu_do import EduStudentProfile
+        from module_learning.entity.do.edu_do import EduStudentProfile
         TeacherUser = aliased(SysUser)
         StudentUser = aliased(SysUser)
         student_subq = (

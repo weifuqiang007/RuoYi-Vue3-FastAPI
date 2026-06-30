@@ -17,7 +17,7 @@ from module_rag.entity.do.document_do import RagDocument
 from module_rag.service.parser import get_parser
 from module_rag.service.chunker.fixed_chunker import FixedChunker
 from module_rag.service.embedding_service import EmbeddingService
-from module_rag.utils.minio_client import MinioClient
+from config.get_minio import MinioUtil
 from utils.log_util import logger
 
 
@@ -40,7 +40,7 @@ class DocumentService:
         # 对象路径: rag/{kb_id}/{uuid}.{ext}
         object_name = f"rag/{kb_id}/{uuid.uuid4().hex}{file_type}"
 
-        minio = MinioClient.get_instance()
+        minio = MinioUtil.get_instance()
 
         # ===== 入库前：上传 MinIO =====
         try:
@@ -85,7 +85,7 @@ class DocumentService:
         doc = await DocumentDao.get_by_id(db, doc_id)
         if not doc:
             return None
-        data = MinioClient.get_instance().get(doc.file_path)
+        data = MinioUtil.get_instance().get(doc.file_path)
         if data is None:
             return None
         return doc, data
@@ -96,7 +96,7 @@ class DocumentService:
         doc = await DocumentDao.get_by_id(db, doc_id)
         if not doc:
             return None
-        url = MinioClient.get_instance().get_presigned_url(doc.file_path)
+        url = MinioUtil.get_instance().get_presigned_url(doc.file_path)
         if url is None:
             return None
         return url, doc
@@ -104,7 +104,7 @@ class DocumentService:
     @classmethod
     async def delete_documents(cls, db: AsyncSession, doc_ids: list[int]) -> None:
         """删除文档（MinIO 文件 + 逻辑删除记录 + 知识库 doc_count-1）"""
-        minio = MinioClient.get_instance()
+        minio = MinioUtil.get_instance()
         for doc_id in doc_ids:
             doc = await DocumentDao.get_by_id(db, doc_id)
             if not doc:
@@ -136,7 +136,7 @@ class DocumentService:
         temp_file_path = None
         try:
             # ===== Step 0: 从 MinIO 下载文件到临时目录 =====
-            minio = MinioClient.get_instance()
+            minio = MinioUtil.get_instance()
             file_data = minio.get(doc.file_path)
             if file_data is None:
                 raise RuntimeError(f"MinIO 文件不存在: {doc.file_path}")

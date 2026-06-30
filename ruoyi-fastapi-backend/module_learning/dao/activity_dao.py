@@ -3,12 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.edu_do import EduStudentProfile, EduTeacherProfile
+from module_learning.entity.do.edu_do import EduStudentProfile, EduTeacherProfile
 from module_admin.entity.do.role_do import SysRole
 from module_admin.entity.do.user_do import SysUser, SysUserRole
 from module_learning.entity.do.record_do import EduLearningRecord
 from module_learning.entity.do.review_do import EduReview
 from module_learning.entity.do.task_do import EduTask
+from module_learning.role_constants import LearningRoles
 
 
 class ActivityDao:
@@ -41,7 +42,7 @@ class ActivityDao:
         items = []
         for r in result.all():
             actor_id = r[2] or r[3]
-            actor_role = 'student' if r[3] else ('teacher' if r[2] else 'admin')
+            actor_role = LearningRoles.STUDENT if r[3] else (LearningRoles.TEACHER if r[2] else LearningRoles.ADMIN)
             items.append({
                 'actor_id': actor_id, 'actor_name': r[4] or r[5] or '某用户', 'actor_role': actor_role,
                 'task_id': r[0], 'task_name': r[1] or '未命名课题', 'record_id': None,
@@ -70,7 +71,7 @@ class ActivityDao:
             {
                 'actor_id': r[3],
                 'actor_name': r[4],
-                'actor_role': 'student',
+                'actor_role': LearningRoles.STUDENT,
                 'task_id': r[0],
                 'task_name': r[1],
                 'record_id': r[2],
@@ -103,7 +104,7 @@ class ActivityDao:
         )
         return [
             {
-                'actor_id': r[3], 'actor_name': r[4] or '某同学', 'actor_role': 'student',
+                'actor_id': r[3], 'actor_name': r[4] or '某同学', 'actor_role': LearningRoles.STUDENT,
                 'task_id': r[0], 'task_name': r[1] or '未命名课题', 'record_id': r[2],
                 'action': 'submit', 'occurred_at': r[5],
             }
@@ -135,7 +136,7 @@ class ActivityDao:
         )
         return [
             {
-                'actor_id': r[3], 'actor_name': r[4] or '某老师', 'actor_role': 'teacher',
+                'actor_id': r[3], 'actor_name': r[4] or '某老师', 'actor_role': LearningRoles.TEACHER,
                 'task_id': r[0], 'task_name': r[1] or '未命名课题', 'record_id': r[2],
                 'action': 'review', 'occurred_at': r[5],
             }

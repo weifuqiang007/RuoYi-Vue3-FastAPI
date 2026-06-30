@@ -6,7 +6,8 @@ from module_learning.dao.task_dao import TaskDao
 from module_learning.entity.do.task_do import EduTask
 from module_learning.entity.vo.task_vo import TaskCreateModel, TaskUpdateModel, StudentTaskCreateModel
 from utils.page_util import PageUtil
-from module_admin.dao.edu_dao import EduDao
+from module_learning.dao.edu_dao import EduDao
+from module_learning.role_constants import LearningRoles
 
 
 
@@ -21,8 +22,7 @@ class TaskService:
         - teacher → creator_type='1', teacher_id=user_id（通过 /list 查看，匹配 teacher_id 条件）
         - admin   → creator_type='1', student_id=user_id（通过 /student/list 查看）
         """
-        role_keys = roles or []
-        is_teacher = 'teacher' in role_keys
+        is_teacher = LearningRoles.is_teacher(roles)
 
         # 默认公用知识库ID，当未传知识库配置时使用
         DEFAULT_KB_IDS = [5]
@@ -168,7 +168,7 @@ class TaskService:
         role_keys = roles or []
 
         # 教师视角：自己的任务 + 所管班级学生自研课题，支持过滤
-        if 'teacher' in role_keys and 'admin' not in role_keys:
+        if LearningRoles.is_teacher_only(role_keys):
             teacher_classes = await EduDao.get_teacher_classes(db, user_id)
             class_ids = [tc['class_id'] for tc in teacher_classes]
             rows_data = await TaskDao.get_all_tasks(db, user_id, class_ids, filters)
@@ -186,7 +186,7 @@ class TaskService:
 
         # admin / student：复用学生侧列表逻辑
         # admin 不限定 class_id（看全部）；student 取自己所属班级（一个用户仅归属一个班级）
-        if 'admin' in role_keys:
+        if LearningRoles.is_admin(role_keys):
             class_id = None
         else:
             profile = await EduDao.get_student_profile_by_user_id(db, user_id)
@@ -209,7 +209,7 @@ class TaskService:
         role_keys = roles or []
         tasks = []
 
-        if 'admin' in role_keys:
+        if LearningRoles.is_admin(role_keys):
             # admin 能看到所有任务，支持过滤
             rows_data = await TaskDao.get_all_tasks_for_admin(db, filters)
             task_ids = [row[0].task_id for row in rows_data]

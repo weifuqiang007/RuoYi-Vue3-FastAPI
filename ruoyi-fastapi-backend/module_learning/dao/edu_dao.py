@@ -3,10 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.edu_do import EduRegistrationAudit, EduStudentProfile, EduTeacherClass, EduTeacherProfile
+from module_learning.entity.do.edu_do import EduRegistrationAudit, EduStudentProfile, EduTeacherClass, EduTeacherProfile
 from module_admin.entity.do.role_do import SysRole
 from module_admin.entity.do.user_do import SysUser, SysUserRole
-from module_admin.entity.vo.edu_vo import AuditQueryModel, ManagedUserQueryModel
+from module_learning.entity.vo.edu_vo import AuditQueryModel, ManagedUserQueryModel
 from utils.page_util import PageUtil
 
 

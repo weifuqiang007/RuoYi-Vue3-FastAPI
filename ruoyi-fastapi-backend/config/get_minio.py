@@ -1,7 +1,17 @@
-# module_rag/utils/minio_client.py
-"""MinIO 对象存储客户端
-参考 ragflow/rag/utils/minio_conn.py 的 RAGFlowMinio 类
-简化版：去掉多租户、prefix_path、single-bucket 等复杂逻辑，只保留核心的 put/get/presigned_url
+"""MinIO 对象存储客户端（框架基础设施）。
+
+定位
+----
+与 ``config/get_redis.py`` 的 ``RedisUtil``、``config/get_scheduler.py`` 的
+``SchedulerUtil`` 同列——配置型、有状态、单例的框架基础设施。MinIO 是通用对象
+存储，不独属于任何业务模块（反身性用来存 RAG 文档，律师产品可用来存案件/语音文件），
+故放在框架层 ``config/`` 下，配置读 ``config.env.MinioConfig``。
+
+启动时由 ``server.py`` lifespan 预热（fail-soft：连不上仅警告，不阻断启动），
+业务模块按需 ``MinioUtil.get_instance()`` 取用即可。
+
+参考 ragflow/rag/utils/minio_conn.py 的 RAGFlowMinio 类，简化为单 bucket 模式：
+去掉多租户、prefix_path 等复杂逻辑，只保留核心的 put/get/presigned_url。
 """
 import time
 from io import BytesIO
@@ -14,13 +24,12 @@ from config.env import MinioConfig
 from utils.log_util import logger
 
 
-class MinioClient:
+class MinioUtil:
     """
-    MinIO 客户端封装
-    参考 ragflow/rag/utils/minio_conn.py，简化为单 bucket 模式
+    MinIO 客户端封装（单 bucket 模式）。
 
     用法:
-        client = MinioClient()
+        client = MinioUtil.get_instance()
         # 上传
         client.put("documents/xxx.pdf", file_bytes)
         # 下载
@@ -37,7 +46,7 @@ class MinioClient:
         self._connect()
 
     @classmethod
-    def get_instance(cls) -> 'MinioClient':
+    def get_instance(cls) -> 'MinioUtil':
         """获取单例实例"""
         if cls._instance is None:
             cls._instance = cls()

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.edu_do import EduStudentProfile
+from module_learning.entity.do.edu_do import EduStudentProfile
 from module_admin.entity.do.user_do import SysUser
 from module_learning.entity.do.record_do import EduLearningRecord
 from module_learning.entity.do.review_do import EduReview, EduReviewDialogue
