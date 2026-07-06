@@ -1,5 +1,5 @@
 # module_rag/dao/knowledge_base_dao.py
-from sqlalchemy import select, update, delete
+from sqlalchemy import ColumnElement, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from module_rag.entity.do.knowledge_base_do import RagKnowledgeBase
 
@@ -13,6 +13,19 @@ class KnowledgeBaseDao:
         return result.scalars().first()
 
     @classmethod
+    async def get_by_ids(cls, db: AsyncSession, kb_ids: list[int]) -> list[RagKnowledgeBase]:
+        """按 id 批量取未删除的知识库（检索鉴权前置取数用）。"""
+        if not kb_ids:
+            return []
+        result = await db.execute(
+            select(RagKnowledgeBase).where(
+                RagKnowledgeBase.kb_id.in_(kb_ids),
+                RagKnowledgeBase.del_flag == '0',
+            )
+        )
+        return list(result.scalars().all())
+
+    @classmethod
     async def get_list(cls, db: AsyncSession) -> list[RagKnowledgeBase]:
         result = await db.execute(
             select(RagKnowledgeBase).where(RagKnowledgeBase.del_flag == '0').order_by(RagKnowledgeBase.create_time.desc())
@@ -21,6 +34,16 @@ class KnowledgeBaseDao:
         把 Result 转换成 可迭代的 ORM 对象序列。
         相当于：只取查询结果里的 “实体行”，不要元组。
         """
+        return list(result.scalars().all())
+
+    @classmethod
+    async def get_visible_list(cls, db: AsyncSession, cond: ColumnElement) -> list[RagKnowledgeBase]:
+        """按可见性条件 cond 过滤的知识库列表（cond 由 ScopePolicy.visible_filter 生成）。"""
+        result = await db.execute(
+            select(RagKnowledgeBase)
+            .where(RagKnowledgeBase.del_flag == '0', cond)
+            .order_by(RagKnowledgeBase.create_time.desc())
+        )
         return list(result.scalars().all())
 
 

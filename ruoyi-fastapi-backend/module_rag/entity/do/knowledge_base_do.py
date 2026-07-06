@@ -20,7 +20,12 @@ class RagKnowledgeBase(Base):
     doc_count = Column(Integer, nullable=True, server_default='0', comment='文档数量')
     status = Column(CHAR(1), nullable=True, server_default='0', comment='状态')
     dept_id = Column(BigInteger, nullable=True, comment='部门ID')
-    user_id = Column(BigInteger, nullable=True, comment='用户ID')
+    user_id = Column(BigInteger, nullable=True, comment='用户ID（创建者）')
+    # ── 资源作用域（见知识库权限控制设计方案 §2.1）──────────────
+    kb_scope = Column(String(20), nullable=False, server_default='personal', comment='可见范围：public/school/class/personal')
+    scope_dept_id = Column(BigInteger, nullable=True, comment='作用域部门ID：school=学校dept_id；class=班级dept_id；其余为NULL')
+    owner_user_id = Column(BigInteger, nullable=True, comment='所有者用户ID（personal=学生本人）')
+    # ──────────────────────────────────────────────────────────
     del_flag = Column(CHAR(1), nullable=True, server_default='0', comment='删除标志')
     create_by = Column(String(64), nullable=True, server_default="''", comment='创建者')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
