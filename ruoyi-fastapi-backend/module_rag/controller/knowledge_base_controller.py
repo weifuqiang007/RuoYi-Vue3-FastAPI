@@ -56,6 +56,11 @@ class KnowledgeBaseController:
         principal: KbPrincipal = ViewerDependency('rag.knowledge_base'),
     ):
         kb_list = await KnowledgeBaseService.get_list(query_db, principal)
+
+        # ORM 对象 → Pydantic 对象 → dict 的批量转换，目的是把数据库模型干净地暴露成响应 JSON（顺带过滤掉不该返回的字段）。
+        # kb (ORM 对象)
+        #   → .model_validate(kb)   ← Pydantic 方法：按字段从 ORM 对象读属性，构造一个 KnowledgeBaseResponseModel 实例
+        #   → .model_dump()         ← Pydantic 方法：把上面的 Pydantic 对象转成普通 dict
         return ResponseUtil.success(
             data=[KnowledgeBaseResponseModel.model_validate(kb).model_dump() for kb in kb_list]
         )

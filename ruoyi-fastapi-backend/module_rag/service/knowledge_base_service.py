@@ -39,6 +39,10 @@ class KnowledgeBaseService:
     # ── 列表（按可见性过滤）────────────────────────────────────
     @classmethod
     async def get_list(cls, db: AsyncSession, principal: KbPrincipal) -> list[RagKnowledgeBase]:
+
+        # cond = _policy().visible_filter(principal, RagKnowledgeBase)   # ① 生成条件对象
+        # return await KnowledgeBaseDao.get_visible_list(db, cond)       # ② 交给 DAO
+        # cond 不是 SQL 字符串，而是一个 SQLAlchemy 表达式对象。它可以直接和 del_flag == '0' 用逗号并列（逗号在 .where() 里就是 AND）
         cond = _policy().visible_filter(principal, RagKnowledgeBase)
         return await KnowledgeBaseDao.get_visible_list(db, cond)
 
