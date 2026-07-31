@@ -571,22 +571,20 @@ class ReflectionService:
                 logger.warning('[反思区] task无reflection_kb_ids, task_id=%s', record.task_id)
                 return '（暂无理论库配置）'
 
-            from module_rag.service.embedding_service import EmbeddingService
-            from module_rag.service.retrieval_service import RetrievalService
+            from module_rag.service.context_builder import RagContextBuilder
 
             query_text = reflection.content or ''
             if not query_text.strip():
                 return ''
-            query_embedding = await EmbeddingService.embed_single(query_text)
-            chunks = await RetrievalService.hybrid_search(
+            context = await RagContextBuilder.build(
                 db=db,
                 query_text=query_text,
-                query_embedding=query_embedding,
                 kb_ids=task.reflection_kb_ids,
                 top_k=4,
+                max_chars_per_chunk=300,
             )
-            logger.info('[反思区] RAG检索到 %d 条理论片段, kb_ids=%s', len(chunks), task.reflection_kb_ids)
-            return '\n\n'.join([f'【{c["content"][:200]}】' for c in chunks])
+            logger.info('[反思区] RAG检索到 {} 条理论片段, kb_ids={}', len(context.results), task.reflection_kb_ids)
+            return context.text or '（未检索到足够相关的理论资料）'
         except Exception as e:
             logger.error('[反思区] RAG理论检索异常: %s', e, exc_info=True)
             return '（理论检索暂不可用）'

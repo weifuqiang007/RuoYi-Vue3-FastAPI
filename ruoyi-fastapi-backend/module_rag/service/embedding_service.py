@@ -1,62 +1,99 @@
-# module_rag/service/embedding_service.py
-"""Embedding 服务
-参考 ragflow/rag/llm/embedding_model.py 的 ZhipuEmbed 类
-核心：批量处理 + 限速 + 重试
-"""
+"""可替换的 Embedding 服务。"""
+
 import asyncio
 import os
+from typing import Protocol
+
 from openai import AsyncOpenAI
 
 
-class EmbeddingService:
-    """
-    Embedding 服务
-    批量处理逻辑参考 ragflow/rag/llm/embedding_model.py 的 batch 处理方式
-    使用智谱 API（兼容 OpenAI SDK）
-    """
-    BATCH_SIZE = 25  # 智普API 每批次最多25条
+class EmbeddingProvider(Protocol):
+    """向量模型提供方协议。"""
 
-    # todo 未来换成硅集流动的模型。需要改动的地方有输入、输出的格式。如果有可能，需要改成一个公共的方法类
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """将等长文本列表转换为等长向量列表。"""
+
+
+class OpenAICompatibleEmbeddingProvider:
+    """适配智谱、硅基流动、OpenAI 等 OpenAI-compatible embeddings API。"""
+
+    MAX_RETRIES = 3
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        dimensions: int = 1024,
+        batch_size: int = 25,
+    ) -> None:
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self.model = model
+        self.dimensions = dimensions
+        self.batch_size = batch_size
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        all_embeddings: list[list[float]] = []
+        for index in range(0, len(texts), self.batch_size):
+            batch = texts[index:index + self.batch_size]
+            for retry in range(self.MAX_RETRIES):
+                try:
+                    response = await self.client.embeddings.create(
+                        model=self.model,
+                        input=batch,
+                        dimensions=self.dimensions,
+                    )
+                    ordered = sorted(response.data, key=lambda item: item.index)
+                    all_embeddings.extend(item.embedding for item in ordered)
+                    break
+                except Exception:
+                    if retry == self.MAX_RETRIES - 1:
+                        raise
+                    await asyncio.sleep(retry + 1)
+            if index + self.batch_size < len(texts):
+                await asyncio.sleep(0.1)
+        return all_embeddings
+
+
+class EmbeddingService:
+    """Embedding 门面；框架调用稳定，具体厂商通过环境或依赖注入替换。"""
+
+    _provider: EmbeddingProvider | None = None
+
     @classmethod
-    def _get_client(cls) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            api_key=os.getenv('ZHIPU_API_KEY', ''),
-            base_url='https://open.bigmodel.cn/api/paas/v4'
-        )
+    def configure_provider(cls, provider: EmbeddingProvider | None) -> None:
+        """注入向量提供方；传 None 恢复按环境变量延迟构建。"""
+        cls._provider = provider
+
+    @classmethod
+    def _get_provider(cls) -> EmbeddingProvider:
+        if cls._provider is None:
+            cls._provider = OpenAICompatibleEmbeddingProvider(
+                api_key=os.getenv('RAG_EMBEDDING_API_KEY') or os.getenv('ZHIPU_API_KEY', ''),
+                base_url=os.getenv(
+                    'RAG_EMBEDDING_BASE_URL',
+                    'https://open.bigmodel.cn/api/paas/v4',
+                ),
+                model=os.getenv('RAG_EMBEDDING_MODEL', 'embedding-3'),
+                dimensions=int(os.getenv('RAG_EMBEDDING_DIMENSIONS', '1024')),
+                batch_size=int(os.getenv('RAG_EMBEDDING_BATCH_SIZE', '25')),
+            )
+        return cls._provider
 
     @classmethod
     async def embed_texts(cls, texts: list[str]) -> list[list[float]]:
-        """
-        批量向量化
-        参考 ragflow embedding_model.py 的批量 + 限速逻辑
-        """
-        client = cls._get_client()
-        all_embeddings = []
-
-        for i in range(0, len(texts), cls.BATCH_SIZE):
-            batch = texts[i: i + cls.BATCH_SIZE]
-
-            for retry in range(3):
-                try:
-                    response = await client.embeddings.create(
-                        model='embedding-3',
-                        input=batch,
-                        dimensions=1024,  # 指定输出 1024 维（pgvector 索引最大支持 2000 维，2048 超限）
-                    )
-                    batch_embeddings = [item.embedding for item in response.data]
-                    all_embeddings.extend(batch_embeddings)
-                    break
-                except Exception as e:
-                    if retry == 2:
-                        raise
-                    await asyncio.sleep(1 * (retry + 1))
-            if i + cls.BATCH_SIZE < len(texts):
-                await asyncio.sleep(0.1)
-
-        return all_embeddings
+        """批量向量化，并校验输入输出数量，避免向量错位写入分块。"""
+        if not texts:
+            return []
+        if any(not (text or '').strip() for text in texts):
+            raise ValueError('向量化文本不能为空')
+        embeddings = await cls._get_provider().embed_texts(texts)
+        if len(embeddings) != len(texts):
+            raise RuntimeError(f'Embedding 返回数量异常：期望 {len(texts)}，实际 {len(embeddings)}')
+        return embeddings
 
     @classmethod
     async def embed_single(cls, text: str) -> list[float]:
-        """单条文本向量化"""
-        results = await cls.embed_texts([text])
-        return results[0]
+        """单条文本向量化。"""
+        return (await cls.embed_texts([text]))[0]

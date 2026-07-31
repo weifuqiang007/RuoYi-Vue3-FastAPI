@@ -5,6 +5,7 @@
 """
 from docx import Document
 
+
 class DocxParser:
 
     def parse(self, file_path: str) -> list[dict]:
@@ -14,28 +15,31 @@ class DocxParser:
         """
         doc = Document(file_path)
         blocks = []
+        paragraphs_by_element = {paragraph._element: paragraph for paragraph in doc.paragraphs}
 
         for element in doc.element.body:
             tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
             if tag == "p":
-                #
-                para_text = ''.join(node.text or '' for node in element.iter() if node.text)
+                paragraph = paragraphs_by_element.get(element)
+                para_text = paragraph.text if paragraph else ''
                 if not para_text.strip():
                     continue
 
-                    # 判断是否标题（参考 ragflow 的 docx_question_level 函数）
-                para_style = ''
-                for p in doc.paragraphs:
-                    if p._element is element:
-                        para_style = p.style.name if p.style else ''
-                        break
+                # 判断是否标题（参考 ragflow 的 docx_question_level 函数）
+                para_style = paragraph.style.name if paragraph and paragraph.style else ''
 
-                block_type = 'title' if 'Heading' in para_style or 'heading' in para_style else 'text'
-                blocks.append({
+                is_heading = 'heading' in para_style.lower()
+                block = {
                     "text": para_text.strip(),
                     "page": 0,
-                    "type": block_type,
-                })
+                    "type": 'title' if is_heading else 'text',
+                }
+                if is_heading:
+                    try:
+                        block["heading_level"] = int(para_style.split()[-1])
+                    except (TypeError, ValueError):
+                        block["heading_level"] = 1
+                blocks.append(block)
 
             elif tag == 'tbl':
                 # 表格处理 — 参考 ragflow 的 __extract_table_content 方法
@@ -47,7 +51,7 @@ class DocxParser:
                         "type": "table",
                     })
 
-            return blocks
+        return blocks
 
     def _extract_table(self, tbl_element, doc) -> str:
         """提取表格文本 — 参考 ragflow 的 __extract_table_content"""

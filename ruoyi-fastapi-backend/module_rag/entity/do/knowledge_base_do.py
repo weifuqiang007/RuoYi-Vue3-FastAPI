@@ -1,10 +1,8 @@
 # module_rag/entity/do/knowledge_base_do.py
 
 from datetime import datetime
-from sqlalchemy import CHAR, BigInteger, Column, DateTime, Integer, String, Text
+from sqlalchemy import CHAR, BigInteger, Column, DateTime, Integer, String
 from config.database import Base
-from config.env import DataBaseConfig
-from utils.common_util import SqlalchemyUtil
 
 class RagKnowledgeBase(Base):
     """rag知识库表"""

@@ -1,6 +1,6 @@
 # module_rag/dao/knowledge_base_dao.py
-from sqlalchemy import ColumnElement, select, update, delete
-from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
+from sqlalchemy import ColumnElement, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from module_rag.entity.do.knowledge_base_do import RagKnowledgeBase
 
 

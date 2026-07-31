@@ -16,6 +16,11 @@ from exceptions.exception import LoginException
 from utils.log_util import logger
 
 from common.login_policy import LoginPolicyHooks
+from module_learning.service.kb_scope_policy import register_learning_kb_scope_policy
+
+
+# 模块发现阶段注册反身性产品的知识库作用域策略。
+register_learning_kb_scope_policy()
 
 
 @LoginPolicyHooks.register_login_validator('edu_registration_audit')

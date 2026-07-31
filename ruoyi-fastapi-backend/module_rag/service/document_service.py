@@ -17,6 +17,7 @@ from module_rag.entity.do.document_do import RagDocument
 from module_rag.service.parser import get_parser
 from module_rag.service.chunker.fixed_chunker import FixedChunker
 from module_rag.service.embedding_service import EmbeddingService
+from module_rag.utils.text_cleaner import clean_block_text, content_fingerprint, is_valid_chunk
 from config.get_minio import MinioUtil
 from utils.log_util import logger
 
@@ -113,6 +114,8 @@ class DocumentService:
             minio.remove(doc.file_path)
             # 逻辑删除数据库记录
             await DocumentDao.update_status(db, doc_id, del_flag='2')
+            # 同步失效分块，避免已删除文档继续参与检索
+            await ChunkDao.delete_by_doc_id(db, doc_id)
             # 知识库文档数 -1
             await KnowledgeBaseDao.increment_doc_count(db, doc.kb_id, -1)
 
@@ -155,7 +158,7 @@ class DocumentService:
             # ===== Step 1: 解析文档 =====
             await DocumentDao.update_status(db, doc_id, parse_status="1")
             parser = get_parser(doc.file_type)
-            blocks = parser.parse(temp_file_path)
+            blocks = cls._enrich_heading_paths(parser.parse(temp_file_path))
 
             # ===== Step 2: 文本分块 =====
             kb = await KnowledgeBaseDao.get_by_id(db, doc.kb_id)
@@ -164,12 +167,35 @@ class DocumentService:
                 overlap=kb.chunk_overlap if kb else 50,
             )
             all_chunks = []
+            seen_fingerprints: set[str] = set()
             for block in blocks:
+                block_text = clean_block_text(block["text"])
+                if block.get("type") == "title" or not block_text:
+                    continue
+                heading_path = block.get("heading_path") or []
+                retrieval_text = cls._with_heading_context(block_text, heading_path)
                 chunks = chunker.chunk(
-                    text=block["text"],
-                    metadata={"page": block.get("page"), "type": block.get("type")}
+                    text=retrieval_text,
+                    metadata={
+                        "doc_id": doc.doc_id,
+                        "doc_name": doc.doc_name,
+                        "file_type": doc.file_type,
+                        "page": block.get("page"),
+                        "heading_path": heading_path,
+                        "block_type": block.get("type", "text"),
+                    },
                 )
-                all_chunks.extend(chunks)
+                for chunk in chunks:
+                    if not is_valid_chunk(chunk["content"]):
+                        continue
+                    fingerprint = content_fingerprint(chunk["content"])
+                    if fingerprint in seen_fingerprints:
+                        continue
+                    seen_fingerprints.add(fingerprint)
+                    all_chunks.append(chunk)
+
+            if not all_chunks:
+                raise ValueError("文档解析后没有可用文本分块")
 
             # ===== Step 3: 保存分块记录 =====
             await DocumentDao.update_status(db, doc_id, parse_status="2", embed_status="1")
@@ -203,3 +229,29 @@ class DocumentService:
             if temp_file_path and os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
                 logger.info(f"文档 {doc_id}: 清理临时文件 {temp_file_path}")
+
+    @staticmethod
+    def _enrich_heading_paths(blocks: list[dict]) -> list[dict]:
+        """为不原生提供章节路径的解析器补齐 heading_path。"""
+        heading_stack: list[tuple[int, str]] = []
+        enriched: list[dict] = []
+        for raw_block in blocks:
+            block = dict(raw_block)
+            if block.get("type") == "title":
+                level = int(block.get("heading_level") or 1)
+                while heading_stack and heading_stack[-1][0] >= level:
+                    heading_stack.pop()
+                title = clean_block_text(block.get("text") or "")
+                if title:
+                    heading_stack.append((level, title))
+                block.setdefault("heading_path", [item[1] for item in heading_stack])
+            else:
+                block.setdefault("heading_path", [item[1] for item in heading_stack])
+            enriched.append(block)
+        return enriched
+
+    @staticmethod
+    def _with_heading_context(content: str, heading_path: list[str]) -> str:
+        """将章节面包屑加入向量化文本，提升孤立段落的语义完整度。"""
+        heading = " > ".join(item.strip() for item in heading_path if item and item.strip())
+        return f"{heading}\n{content}" if heading else content

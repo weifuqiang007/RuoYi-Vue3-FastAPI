@@ -4,6 +4,7 @@
 """
 
 import re
+import hashlib
 import chardet
 
 
@@ -40,6 +41,33 @@ def clean_text(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     # 去除首尾空白
     return text.strip()
+
+
+def clean_block_text(text: str) -> str:
+    """清洗解析后的文本，同时保留段落、列表和表格所需的换行结构。"""
+    if not text:
+        return ''
+    text = re.sub(r'<[^>]+>', '', text)
+    text = text.replace('\u00a0', ' ').replace('\u200b', '')
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r' *\n *', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def is_valid_chunk(content: str, min_length: int = 20) -> bool:
+    """过滤空白、过短和明显由不可打印字符构成的分块。"""
+    normalized = re.sub(r'\s+', '', content or '')
+    if len(normalized) < min_length:
+        return False
+    printable = sum(1 for char in normalized if char.isprintable())
+    return printable / len(normalized) >= 0.9
+
+
+def content_fingerprint(content: str) -> str:
+    """生成忽略空白和大小写的稳定指纹，用于文档内精确去重。"""
+    normalized = re.sub(r'\s+', '', content or '').casefold()
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
 
 
 def is_chinese(text: str) -> bool:

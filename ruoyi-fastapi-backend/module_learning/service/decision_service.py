@@ -196,24 +196,18 @@ class DecisionService:
             if not task or not task.decision_kb_ids:
                 return '（暂无伦理知识库配置）'
 
-            from module_rag.service.embedding_service import EmbeddingService
-            from module_rag.service.retrieval_service import RetrievalService
+            from module_rag.service.context_builder import RagContextBuilder
 
             query_text = f'{decision.key_event_desc or ""} {decision.action_taken or ""} {decision.reasoning or ""}'
-            query_embedding = await EmbeddingService.embed_single(query_text)
-            chunks = await RetrievalService.hybrid_search(
+            context = await RagContextBuilder.build(
                 db=db,
                 query_text=query_text,
-                query_embedding=query_embedding,
                 kb_ids=task.decision_kb_ids,
                 top_k=5,
+                max_chars_per_chunk=500,
             )
-            logger.info("chunks is %s:",chunks)
-            return '\n\n'.join([
-                # f'【参考{i+1}】{c["content"][:300]}'
-                f'【参考{i + 1}】{c["content"]}'
-                for i, c in enumerate(chunks)
-            ])
+            logger.info('[决策区] RAG检索到 {} 条伦理知识', len(context.results))
+            return context.text or '（未检索到足够相关的伦理知识）'
         except Exception as e:
             logger.warning('[决策区] 伦理知识检索异常: %s', e)
             return '（伦理知识检索暂不可用）'

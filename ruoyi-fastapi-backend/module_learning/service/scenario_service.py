@@ -294,20 +294,15 @@ class ScenarioService:
             if not task or not task.scenario_kb_ids:
                 return '（暂无知识库配置）'
 
-            from module_rag.service.embedding_service import EmbeddingService
-            from module_rag.service.retrieval_service import RetrievalService
+            from module_rag.service.context_builder import RagContextBuilder
 
-            query_embedding = await EmbeddingService.embed_single(scenario.description)
-            chunks = await RetrievalService.hybrid_search(
+            context = await RagContextBuilder.build(
                 db=db,
                 query_text=scenario.description,
-                query_embedding=query_embedding,
                 kb_ids=task.scenario_kb_ids,
                 top_k=5,
+                max_chars_per_chunk=300,
             )
-            return '\n\n'.join([
-                f'【参考{i+1}】{c["content"][:300]}'
-                for i, c in enumerate(chunks)
-            ])
+            return context.text or '（未检索到足够相关的知识）'
         except Exception:
             return '（知识检索暂不可用）'

@@ -1,6 +1,7 @@
 # module_rag/service/parser/__init__.py
 from module_rag.service.parser.pdf_parser import PdfParser
 from module_rag.service.parser.docx_parser import DocxParser
+from module_rag.service.parser.markdown_parser import MarkdownParser
 from module_rag.service.parser.txt_parser import TxtParser
 
 # 文件类型 -- 》 解析器映射
@@ -9,7 +10,7 @@ PARSER_MAP = {
     '.docx': DocxParser,
     '.doc': DocxParser,
     '.txt': TxtParser,
-    '.md': TxtParser
+    '.md': MarkdownParser,
 }
 
 def get_parser(file_type: str):

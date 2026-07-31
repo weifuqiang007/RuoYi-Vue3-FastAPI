@@ -201,7 +201,7 @@ class ReviewService:
         logger.info('[批阅] 生成AI评论 record_id=%s model_id=%s scope=%s', record_id, review_model_id, scope)
         try:
             ai_comment = await AiCall.call_llm_json(db, review_model_id, prompt)
-        except Exception as e:
+        except Exception:
             logger.exception('[批阅] LLM调用失败 record_id=%s', record_id)
             raise ValueError('AI评论生成失败，请稍后重试')
 
@@ -320,7 +320,7 @@ class ReviewService:
                 await cls.generate_ai_comment(db, record_id, scope='reflection', current_user=None)
                 await db.commit()
                 logger.info('[批阅] 自动生成AI评论成功 record_id=%s', record_id)
-            except Exception as e:
+            except Exception:
                 await db.rollback()
                 logger.exception('[批阅] 自动生成AI评论失败 record_id=%s', record_id)
 
@@ -428,18 +428,16 @@ class ReviewService:
             query_text = (context or '')[:500]
             if not query_text.strip():
                 return ''
-            from module_rag.service.embedding_service import EmbeddingService
-            from module_rag.service.retrieval_service import RetrievalService
-            query_embedding = await EmbeddingService.embed_single(query_text)
-            chunks = await RetrievalService.hybrid_search(
+            from module_rag.service.context_builder import RagContextBuilder
+            rag_context = await RagContextBuilder.build(
                 db=db,
                 query_text=query_text,
-                query_embedding=query_embedding,
                 kb_ids=task.reflection_kb_ids,
                 top_k=4,
+                max_chars_per_chunk=300,
             )
-            return '\n\n'.join([f'【{c["content"][:200]}】' for c in chunks])
-        except Exception as e:
+            return rag_context.text
+        except Exception:
             logger.exception('[批阅] RAG检索异常')
             return ''
 

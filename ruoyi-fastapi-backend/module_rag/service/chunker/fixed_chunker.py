@@ -6,9 +6,6 @@
 3. 相邻 chunk 之间保留 overlap
 """
 
-import re
-
-
 class FixedChunker:
 
     SENTENCE_ENDS = set("。！？；.!?;\n")
@@ -51,7 +48,8 @@ class FixedChunker:
                 if len(para) > self.chunk_size:
                     sub_chunks = self._split_at_sentence(para, metadata, overlap_text)
                     chunks.extend(sub_chunks)
-                    current_chunk = sub_chunks[-1]["content"][-self.overlap:] if sub_chunks else ""
+                    overlap_text = sub_chunks[-1]["content"][-self.overlap:] if sub_chunks else ""
+                    current_chunk = ""
                 else:
                     current_chunk = overlap_text + para + "\n\n"
 
@@ -65,23 +63,30 @@ class FixedChunker:
         在句子边界处切分长文本
         参考 ragflow naive_merge 中的 overlap 逻辑
         """
+        content = prefix + text
         chunks = []
-        current = prefix
+        start = 0
+        minimum_boundary = max(1, int(self.chunk_size * 0.6))
 
-        for char in text:
-            current += char
-            if char in self.SENTENCE_ENDS and len(current) >= self.chunk_size:
-                chunks.append(self._make_chunk(current.strip(), metadata))
-                current = current[-self.overlap:]
+        while len(content) - start > self.chunk_size:
+            hard_end = start + self.chunk_size
+            boundary = -1
+            for index in range(hard_end, start + minimum_boundary - 1, -1):
+                if content[index - 1] in self.SENTENCE_ENDS:
+                    boundary = index
+                    break
+            end = boundary if boundary > start else hard_end
+            chunks.append(self._make_chunk(content[start:end].strip(), metadata))
+            start = max(end - self.overlap, start + 1)
 
-        if current.strip():
-            chunks.append(self._make_chunk(current.strip(), metadata))
-
+        remainder = content[start:].strip()
+        if remainder:
+            chunks.append(self._make_chunk(remainder, metadata))
         return chunks
 
     def _make_chunk(self, content: str, metadata: dict) -> dict:
         return {
             "content": content,
             "token_count": len(content),
-            "metadata": metadata or {},
+            "metadata": dict(metadata or {}),
         }

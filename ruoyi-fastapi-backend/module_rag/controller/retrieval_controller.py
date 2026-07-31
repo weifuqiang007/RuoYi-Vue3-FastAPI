@@ -1,6 +1,6 @@
 # module_rag/controller/retrieval_controller.py
 from typing import Annotated
-from fastapi import Body
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import RoleInterfaceAuthDependency
@@ -60,6 +60,12 @@ class RetrievalController:
         return ResponseUtil.success(data=[{
             "chunk_id": r["chunk_id"],
             "doc_id": r["doc_id"],
+            "kb_id": r["kb_id"],
             "content": r["content"][:200],
             "score": float(r.get("score", 0)),
+            "vector_score": float(r.get("vector_score", 0)),
+            "keyword_score": float(r.get("keyword_score", 0)),
+            "fusion_score": float(r.get("fusion_score", 0)),
+            "rerank_score": float(r.get("rerank_score", 0)),
+            "metadata": r.get("metadata") or {},
         } for r in results])

@@ -1,5 +1,5 @@
 # module_rag/dao/chunk_dao.py
-from sqlalchemy import func, select, update, text
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 from module_rag.entity.do.chunk_do import RagChunk
@@ -9,10 +9,9 @@ class ChunkDao:
 
     @classmethod
     async def bulk_insert(cls, db: AsyncSession, doc_id: int, kb_id: int, chunks: list[dict]) -> list[int]:
-        """批量插入分块记录，返回 chunk_id 列表,这里面有没有批量插入的方法？逐条插入是不是有点太浪费资源了？"""
-        chunk_ids = []
-        for i , chunk in enumerate(chunks):
-            rag_chunk = RagChunk(
+        """单次 flush 批量插入分块记录，并返回 chunk_id 列表。"""
+        rag_chunks = [
+            RagChunk(
                 doc_id=doc_id,
                 kb_id=kb_id,
                 chunk_index=i,
@@ -20,10 +19,11 @@ class ChunkDao:
                 token_count=chunk.get('token_count', len(chunk['content'])),
                 chunk_metadata=chunk.get('metadata')
             )
-            db.add(rag_chunk)
-            await db.flush()
-            chunk_ids.append(rag_chunk.chunk_id)
-        return chunk_ids
+            for i, chunk in enumerate(chunks)
+        ]
+        db.add_all(rag_chunks)
+        await db.flush()
+        return [chunk.chunk_id for chunk in rag_chunks]
 
 
     @classmethod

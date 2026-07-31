@@ -1,6 +1,6 @@
 # module_rag/entity/do/chunk_do.py
 from datetime import datetime
-from sqlalchemy import CHAR, BigInteger, Column, DateTime, Integer, String, Text
+from sqlalchemy import CHAR, BigInteger, Column, DateTime, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from config.database import Base
