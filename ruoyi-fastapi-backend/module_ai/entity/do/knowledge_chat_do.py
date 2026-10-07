@@ -23,6 +23,9 @@ class KbChatSession(Base):
     user_id = Column(BigInteger, nullable=False, index=True, comment='会话归属用户ID，关联sys_user.user_id')
     title = Column(String(200), server_default='', comment='会话标题，默认取首条问题前20个字符')
     kb_ids = Column(JSONB, comment='知识库ID列表，JSON数组如[1,2]，决定本轮可检索的知识库范围')
+    last_answer_mode = Column(
+        String(20), comment='最近一次已接受请求的回答模式（professional/public），旧会话为NULL按professional'
+    )
     del_flag = Column(CHAR(1), server_default='0', comment='删除标志（0存在 2删除）')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='最后更新时间')
@@ -51,11 +54,17 @@ class KbChatMessage(Base):
         comment='引用状态（pending 待确认 valid 有效 needs_review 需核验 not_applicable 不适用）',
     )
     client_request_id = Column(String(64), comment='前端幂等请求ID，防止重复提交重复生成')
+    request_kb_ids = Column(JSONB, comment='本轮请求的知识库ID列表，JSON数组如[1,2]，用于幂等冲突检测')
     retry_of_message_id = Column(BigInteger, comment='重试来源的助手消息ID，非重试为NULL')
     model_name = Column(String(100), comment='生成本条回答的模型名称')
     retrieval_status = Column(
         String(20),
         comment='检索状态（matched 有命中 no_match 零命中 failed 检索失败 not_attempted 未检索）',
+    )
+    answer_mode = Column(
+        String(20),
+        server_default='professional',
+        comment='回答模式（professional 专业研讨 public 日常求助）',
     )
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
 
@@ -79,4 +88,11 @@ class KbChatCitation(Base):
     page_label = Column(String(50), comment='页码标签，如"PDF 第 3 页"')
     locator_type = Column(String(20), comment='定位类型（section 章节 page 页码 none 未记录）')
     excerpt = Column(Text, comment='本次实际提供给模型的原文片段，打开引用时经鉴权后返回')
+    evidence_type = Column(
+        String(20), comment='依据类别（direct 直接依据 background 背景参考）'
+    )
+    supports = Column(
+        JSONB, comment='正文支持关系，JSON数组如[{"statement":"...","relation":"background"}]'
+    )
+    application_note = Column(Text, comment='适用限制说明，如“该片段提供理解视角，不直接证明某项具体应对方法”')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')

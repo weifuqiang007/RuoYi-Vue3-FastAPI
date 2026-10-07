@@ -27,11 +27,12 @@ def test_locator_type_prefers_page_then_section() -> None:
 
 
 def test_session_dict_maps_orm_to_frontend_contract() -> None:
-    """会话 ORM 字段应映射为前端驼峰契约。"""
+    """会话 ORM 字段应映射为前端驼峰契约（含 lastAnswerMode 兜底 professional）。"""
     session = SimpleNamespace(
         session_id='abc123',
         title='',
         kb_ids=[12, 18],
+        last_answer_mode=None,
         create_time='2026-10-07 12:00:00',
         update_time='2026-10-07 13:00:00',
     )
@@ -39,8 +40,17 @@ def test_session_dict_maps_orm_to_frontend_contract() -> None:
     assert result['sessionId'] == 'abc123'
     assert result['title'] == '新会话'
     assert result['kbIds'] == [12, 18]
+    assert result['lastAnswerMode'] == 'professional'
     assert result['createdAt'] == '2026-10-07 12:00:00'
     assert result['updatedAt'] == '2026-10-07 13:00:00'
+
+
+def test_extract_json_handles_code_fence_and_plain() -> None:
+    """支持关系校验的 JSON 提取：纯 JSON 与代码块包裹均可解析。"""
+    assert KnowledgeChatService._extract_json('{"a": 1}') == {'a': 1}
+    assert KnowledgeChatService._extract_json('```json\n{"a": 1}\n```') == {'a': 1}
+    assert KnowledgeChatService._extract_json('说明：{"a": 1} 完') == {'a': 1}
+    assert KnowledgeChatService._extract_json('无 JSON 文本') is None
 
 
 def test_session_do_has_expected_table_name() -> None:

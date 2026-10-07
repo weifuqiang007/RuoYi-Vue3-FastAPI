@@ -26,6 +26,7 @@ class KbChatSessionModel(BaseModel):
     session_id: str = Field(description='会话ID')
     title: str | None = Field(default=None, description='会话标题')
     kb_ids: list[int] | None = Field(default=None, description='知识库ID列表')
+    last_answer_mode: str | None = Field(default=None, description='最近一次已接受请求的回答模式（professional/public）')
     created_at: datetime | None = Field(default=None, description='创建时间')
     updated_at: datetime | None = Field(default=None, description='最后更新时间')
 
@@ -55,6 +56,9 @@ class KbChatCitationModel(BaseModel):
     page_label: str | None = Field(default=None, description='页码标签')
     locator_type: str | None = Field(default=None, description='定位类型（section/page/none）')
     excerpt: str | None = Field(default=None, description='原文片段，仅鉴权通过后返回')
+    evidence_type: str | None = Field(default=None, description='依据类别（direct 直接依据 background 背景参考）')
+    supports: list[dict] | None = Field(default=None, description='正文支持关系，如[{"statement":"...","relation":"background"}]')
+    application_note: str | None = Field(default=None, description='适用限制说明')
     availability: Literal['available', 'unavailable'] = Field(
         default='available', description='可用性（available 可访问 unavailable 已不可访问）'
     )
@@ -73,6 +77,7 @@ class KbChatMessageModel(BaseModel):
     answer_type: str | None = Field(default=None, description='回答类型（grounded/general/insufficient/clarification）')
     citation_status: str | None = Field(default=None, description='引用状态（pending/valid/needs_review/not_applicable）')
     retrieval_status: str | None = Field(default=None, description='检索状态（matched/no_match/failed/not_attempted）')
+    answer_mode: str | None = Field(default=None, description='回答模式（professional/public）')
     citations: list[KbChatCitationModel] | None = Field(default=None, description='引用列表')
     created_at: datetime | None = Field(default=None, description='创建时间')
 
@@ -85,5 +90,8 @@ class KbChatStreamRequestModel(BaseModel):
     session_id: str | None = Field(default=None, description='会话ID，为空则新建会话')
     content: str = Field(description='用户消息内容')
     kb_ids: list[str] = Field(default_factory=list, description='本轮知识库ID列表')
+    answer_mode: Literal['professional', 'public'] = Field(
+        default='professional', description='回答模式（professional 专业研讨 public 日常求助）'
+    )
     client_request_id: str = Field(description='前端幂等请求ID，同一请求重复提交只生成一次')
     retry_of_message_id: int | None = Field(default=None, description='重试来源的助手消息ID')

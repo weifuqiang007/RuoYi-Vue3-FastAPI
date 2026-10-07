@@ -47,13 +47,8 @@ class KnowledgeChatDao:
 
     @classmethod
     async def update_session(cls, db: AsyncSession, session_id: str, **kwargs) -> None:
-        """按会话ID更新字段（如标题/知识库范围）。"""
-        session = await cls.get_session(db, session_id)
-        if session is None:
-            return
-        for key, value in kwargs.items():
-            if value is not None:
-                setattr(session, key, value)
+        """按会话ID更新字段（UPDATE 语句，不依赖 ORM 对象生命周期）。"""
+        await db.execute(update(KbChatSession).where(KbChatSession.session_id == session_id).values(**kwargs))
 
     # ── 消息 ──────────────────────────────────────────────
     @classmethod

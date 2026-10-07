@@ -13,9 +13,20 @@
       </el-aside>
 
       <el-container class="chat-main">
-        <!-- 顶部：标题 + 资料范围 -->
+        <!-- 顶部：模式切换 + 标题 + 资料范围 -->
         <el-header height="64px" class="chat-header">
-          <div class="header-title">社会工作教学与研究助手</div>
+          <div class="header-left">
+            <div class="header-title">{{ headerTitle }}</div>
+            <el-radio-group
+              v-model="answerMode"
+              class="mode-switch"
+              :disabled="sending"
+              @change="handleModeChange"
+            >
+              <el-radio-button value="professional">专业研讨</el-radio-button>
+              <el-radio-button value="public">日常求助</el-radio-button>
+            </el-radio-group>
+          </div>
           <div class="header-scope">
             <span class="scope-label">资料范围</span>
             <el-select
@@ -42,15 +53,15 @@
         <!-- 中部：消息列表 -->
         <el-main class="chat-body" ref="bodyRef">
           <div v-if="messages.length === 0" class="chat-welcome">
-            <div class="welcome-title">从一个教学或研究问题开始</div>
+            <div class="welcome-title">{{ welcomeTitle }}</div>
             <div class="welcome-desc">
-              结合已选教材与文章回答，支持连续追问和来源核查
+              {{ welcomeDesc }}
             </div>
             <div v-if="selectedKbIds.length === 0" class="welcome-hint">请先选择资料范围</div>
             <div v-if="kbOptions.length === 0" class="welcome-hint">暂无可用资料，请联系管理员配置</div>
             <div v-if="kbOptions.length > 0 && selectedKbIds.length > 0" class="welcome-examples">
               <div
-                v-for="(q, i) in exampleQuestions"
+                v-for="(q, i) in welcomeExamples"
                 :key="i"
                 class="example-item"
                 @click="fillExample(q)"
@@ -67,11 +78,18 @@
               </template>
               <template v-else>
                 <div class="assistant-wrap">
+                  <div class="assistant-meta">
+                    <span class="mode-tag" :class="msg.answerMode === 'public' ? 'mode-public' : 'mode-professional'">
+                      {{ msg.answerMode === 'public' ? '日常求助' : '专业研讨' }}
+                    </span>
+                  </div>
                   <AssistantMessage
                     v-if="msg.status !== 'failed' && msg.status !== 'cancelled'"
                     :content="msg.content"
                     :citations="msg.citations"
                     :streaming="msg.streaming"
+                    :answer-mode="msg.answerMode || 'professional'"
+                    :citation-status="msg.citationStatus"
                     @open-citation="(no) => openCitation(no, msg)"
                   />
                   <el-alert
@@ -91,7 +109,7 @@
                     show-icon
                   />
                   <div v-if="msg.citationStatus === 'needs_review'" class="citation-warning">
-                    部分引用未通过校验，请勿直接作为理论依据
+                    参考依据未完成核验，请勿作为专业依据
                   </div>
                 </div>
               </template>
@@ -113,12 +131,12 @@
             maxlength="4000"
             show-word-limit
             :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+            :placeholder="inputPlaceholder"
             :disabled="sending"
             @keydown.enter.exact.prevent="handleSend"
           />
           <div class="composer-actions">
-            <span class="composer-note">辅助教学与研究，重要结论请核对原文</span>
+            <span class="composer-note">{{ composerNote }}</span>
             <div class="composer-buttons">
               <el-button v-if="sending" @click="handleStop">停止</el-button>
               <el-button
@@ -157,10 +175,16 @@ import SessionSidebar from "./components/SessionSidebar.vue";
 import AssistantMessage from "./components/AssistantMessage.vue";
 import SourceDrawer from "./components/SourceDrawer.vue";
 
-const exampleQuestions = [
+const professionalExamples = [
   "赋权理论与优势视角有什么联系和区别？",
   "社会工作者如何反思自己在服务关系中的权力位置？",
   "请根据知识库资料解释反身性与一般反思的区别。",
+];
+
+const publicExamples = [
+  "我家孩子刚才因为水杯放的位置不对，突然就大喊大叫，还摔遥控器，我劝半天也没用，急死我了。",
+  "还有啊，我刚才说的这些孩子的情况，这些信息外人看不到吧？我就怕传出去。",
+  "哦对了，今天他自己主动把桌上的书摞起来了，虽然摆得不太齐，但之前从来不会做，感觉还是有点进步对吧？",
 ];
 
 const sessions = ref([]);
@@ -168,6 +192,7 @@ const sessionsLoading = ref(false);
 const activeSessionId = ref("");
 const kbOptions = ref([]);
 const selectedKbIds = ref([]);
+const answerMode = ref("professional");
 
 const messages = ref([]);
 const inputMessage = ref("");
@@ -185,6 +210,38 @@ const drawerCitationNo = ref(null);
 const stageText = computed(() => {
   return stage.value === "retrieving" ? "正在检索资料" : "正在生成回答";
 });
+
+const isPublic = computed(() => answerMode.value === "public");
+
+const headerTitle = computed(() =>
+  isPublic.value ? "社会工作生活支持助手" : "社会工作教学与研究助手"
+);
+
+const welcomeTitle = computed(() =>
+  isPublic.value ? "说说你正在面对的实际困难" : "从一个教学或研究问题开始"
+);
+
+const welcomeDesc = computed(() =>
+  isPublic.value
+    ? "用易懂的方式讨论实际困难，可展开查看参考依据"
+    : "结合已选教材与文章回答，支持连续追问和来源核查"
+);
+
+const welcomeExamples = computed(() =>
+  isPublic.value ? publicExamples : professionalExamples
+);
+
+const inputPlaceholder = computed(() =>
+  isPublic.value
+    ? "描述你遇到的具体情况，Enter 发送，Shift+Enter 换行"
+    : "输入问题，Enter 发送，Shift+Enter 换行"
+);
+
+const composerNote = computed(() =>
+  isPublic.value
+    ? "AI 辅助支持，不替代持证社工或紧急求助；重要建议请核对参考依据"
+    : "辅助教学与研究，重要结论请核对原文"
+);
 
 const canSend = computed(() => {
   return inputMessage.value.trim().length > 0 && selectedKbIds.value.length > 0 && !sending.value;
@@ -232,6 +289,8 @@ async function loadMessages(sessionId) {
       status: m.status || "completed",
       answerType: m.answerType,
       citationStatus: m.citationStatus,
+      retrievalStatus: m.retrievalStatus,
+      answerMode: m.answerMode || "professional",
       citations: m.citations || [],
       streaming: false,
     }));
@@ -256,6 +315,7 @@ function handleNewSession() {
   messages.value = [];
   inputMessage.value = "";
   stage.value = "";
+  answerMode.value = "professional";
 }
 
 function handleSelectSession(session) {
@@ -264,7 +324,16 @@ function handleSelectSession(session) {
   }
   activeSessionId.value = session.sessionId;
   inputMessage.value = "";
+  // 刷新/重开会话：恢复该会话最近一次已接受请求的模式
+  answerMode.value = session.lastAnswerMode || "professional";
   loadMessages(session.sessionId);
+}
+
+function handleModeChange() {
+  // 仅更新页面文案与草稿上下文，不发请求、不修改旧消息
+  if (sending.value) {
+    return;
+  }
 }
 
 function handleKbChange() {
@@ -297,6 +366,7 @@ function pushAssistantPlaceholder() {
     streaming: true,
     status: "generating",
     messageId: null,
+    answerMode: answerMode.value,
   });
   return messages.value.length - 1;
 }
@@ -335,6 +405,7 @@ async function handleSend() {
         body: JSON.stringify({
           content: text,
           kbIds: selectedKbIds.value,
+          answerMode: answerMode.value,
           clientRequestId: generateRequestId(),
         }),
       }
@@ -421,6 +492,7 @@ function handleStreamEvent(data, assistantIndex) {
     case "meta":
       activeSessionId.value = data.sessionId;
       assistantMsg.messageId = data.messageId;
+      assistantMsg.answerMode = data.answerMode || answerMode.value;
       streamingMessageId.value = data.messageId;
       break;
     case "status":
@@ -446,6 +518,7 @@ function handleStreamEvent(data, assistantIndex) {
       assistantMsg.answerType = data.answerType;
       assistantMsg.citationStatus = data.citationStatus;
       assistantMsg.retrievalStatus = data.retrievalStatus;
+      assistantMsg.answerMode = data.answerMode || assistantMsg.answerMode || "professional";
       assistantMsg.streaming = false;
       return true;
     }
@@ -528,9 +601,19 @@ onMounted(() => {
   border-bottom: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);
 }
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
 .header-title {
   font-size: 16px;
   font-weight: 600;
+  white-space: nowrap;
+}
+.mode-switch {
+  flex-shrink: 0;
 }
 .header-scope {
   display: flex;
@@ -613,6 +696,24 @@ onMounted(() => {
   background: var(--el-bg-color);
   border-radius: 12px;
   padding: 16px 18px;
+}
+.assistant-meta {
+  margin-bottom: 8px;
+}
+.mode-tag {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.mode-professional {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+.mode-public {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
 }
 .citation-warning {
   margin-top: 10px;

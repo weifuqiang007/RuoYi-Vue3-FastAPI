@@ -27,6 +27,9 @@
         <el-descriptions-item label="文献类型">
           {{ sourceTypeText }}
         </el-descriptions-item>
+        <el-descriptions-item v-if="citation.evidenceType" label="依据类别">
+          {{ citation.evidenceType === 'direct' ? '直接依据' : '背景参考' }}
+        </el-descriptions-item>
         <el-descriptions-item v-if="citation.headingPath && citation.headingPath.length" label="章节">
           {{ citation.headingPath.join(" › ") }}
         </el-descriptions-item>
@@ -34,6 +37,18 @@
           {{ citation.pageLabel }}
         </el-descriptions-item>
       </el-descriptions>
+
+      <template v-if="citation.supports && citation.supports.length">
+        <div class="detail-excerpt-title">支持关系</div>
+        <div class="detail-supports">
+          <div v-for="(s, i) in citation.supports" :key="i" class="support-item">
+            <span class="support-relation">{{ s.relation === 'direct' ? '直接依据' : '背景参考' }}</span>
+            <span>{{ s.statement }}</span>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="citation.applicationNote" class="detail-note">{{ citation.applicationNote }}</div>
 
       <div class="detail-excerpt-title">原文片段</div>
       <div class="detail-excerpt">{{ citation.excerpt || "未记录原文片段" }}</div>
@@ -138,6 +153,30 @@ function handleClose() {
   font-size: 13px;
   color: var(--el-text-color-secondary);
   margin-bottom: 8px;
+}
+.detail-supports {
+  margin-bottom: 16px;
+}
+.support-item {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.support-relation {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--el-color-primary);
+}
+.detail-note {
+  font-size: 13px;
+  color: var(--el-color-warning);
+  margin-bottom: 12px;
+  line-height: 1.6;
 }
 .detail-excerpt {
   font-size: 14px;
