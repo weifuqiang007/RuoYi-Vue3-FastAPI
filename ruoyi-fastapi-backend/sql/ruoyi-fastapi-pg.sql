@@ -269,6 +269,7 @@ insert into sys_menu values(116,  '代码生成', 3,   '2', 'gen',              
 insert into sys_menu values(117,  '系统接口', 3,   '3', 'swagger',             'tool/swagger/index',                '', '', 1, 0, 'C', '0', '0', 'tool:swagger:list',                'swagger',       'admin', current_timestamp, '', null, '系统接口菜单');
 insert into sys_menu values(118,  '模型管理', 4,   '1', 'model',               'ai/model/index',                    '', '', 1, 0, 'C', '0', '0', 'ai:model:list',                    'form',          'admin', current_timestamp, '', null, '模型管理菜单');
 insert into sys_menu values(119,  'AI 对话', 4,   '2', 'chat',                'ai/chat/index',                     '', '', 1, 0, 'C', '0', '0', 'ai:chat:list',                     'wechat',        'admin', current_timestamp, '', null, 'AI 对话菜单');
+insert into sys_menu values(120,  '知识对话', 4,   '3', 'knowledge-chat',      'ai/knowledge-chat/index',           '', '', 1, 0, 'C', '0', '0', 'ai:knowledge-chat:list',            'wechat',        'admin', current_timestamp, '', null, '知识对话菜单（社会工作教学与研究助手）');
 -- 三级菜单
 insert into sys_menu values(500,  '操作日志', 108, '1', 'operlog',    'monitor/operlog/index',    '', '', 1, 0, 'C', '0', '0', 'monitor:operlog:list',    'form',          'admin', current_timestamp, '', null, '操作日志菜单');
 insert into sys_menu values(501,  '登录日志', 108, '2', 'logininfor', 'monitor/logininfor/index', '', '', 1, 0, 'C', '0', '0', 'monitor:logininfor:list', 'logininfor',    'admin', current_timestamp, '', null, '登录日志菜单');
