@@ -25,7 +25,7 @@ class OpenAICompatibleEmbeddingProvider:
         api_key: str,
         base_url: str,
         model: str,
-        dimensions: int = 1024,
+        dimensions: int | None = None,
         batch_size: int = 25,
     ) -> None:
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -39,11 +39,12 @@ class OpenAICompatibleEmbeddingProvider:
             batch = texts[index:index + self.batch_size]
             for retry in range(self.MAX_RETRIES):
                 try:
-                    response = await self.client.embeddings.create(
-                        model=self.model,
-                        input=batch,
-                        dimensions=self.dimensions,
-                    )
+                    # dimensions 仅在提供方支持时传入（如智谱 embedding-3）；
+                    # 硅基流动 bge-m3 等固定维度模型不接受该参数。
+                    kwargs: dict = {'model': self.model, 'input': batch}
+                    if self.dimensions:
+                        kwargs['dimensions'] = self.dimensions
+                    response = await self.client.embeddings.create(**kwargs)
                     ordered = sorted(response.data, key=lambda item: item.index)
                     all_embeddings.extend(item.embedding for item in ordered)
                     break
@@ -69,6 +70,7 @@ class EmbeddingService:
     @classmethod
     def _get_provider(cls) -> EmbeddingProvider:
         if cls._provider is None:
+            dims_raw = os.getenv('RAG_EMBEDDING_DIMENSIONS', '').strip()
             cls._provider = OpenAICompatibleEmbeddingProvider(
                 api_key=os.getenv('RAG_EMBEDDING_API_KEY') or os.getenv('ZHIPU_API_KEY', ''),
                 base_url=os.getenv(
@@ -76,7 +78,7 @@ class EmbeddingService:
                     'https://open.bigmodel.cn/api/paas/v4',
                 ),
                 model=os.getenv('RAG_EMBEDDING_MODEL', 'embedding-3'),
-                dimensions=int(os.getenv('RAG_EMBEDDING_DIMENSIONS', '1024')),
+                dimensions=int(dims_raw) if dims_raw else None,
                 batch_size=int(os.getenv('RAG_EMBEDDING_BATCH_SIZE', '25')),
             )
         return cls._provider
