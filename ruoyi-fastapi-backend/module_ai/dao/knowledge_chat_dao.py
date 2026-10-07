@@ -1,6 +1,6 @@
 """知识对话数据库操作层。"""
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_ai.entity.do.knowledge_chat_do import KbChatCitation, KbChatMessage, KbChatSession
@@ -68,6 +68,11 @@ class KnowledgeChatDao:
         """按消息ID取消息。"""
         result = await db.execute(select(KbChatMessage).where(KbChatMessage.message_id == message_id))
         return result.scalars().first()
+
+    @classmethod
+    async def update_message(cls, db: AsyncSession, message_id: int, **kwargs) -> None:
+        """按消息ID更新字段（UPDATE 语句，不依赖 ORM 对象生命周期）。"""
+        await db.execute(update(KbChatMessage).where(KbChatMessage.message_id == message_id).values(**kwargs))
 
     @classmethod
     async def get_message_by_client_request_id(

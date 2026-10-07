@@ -69,7 +69,7 @@ class KnowledgeChatService:
         return result.scalars().first()
 
     @classmethod
-    def _build_agent(cls, model_config: AiModels) -> Agent:
+    def _build_agent(cls, model_config: AiModels, extra_instruction: str | None = None) -> Agent:
         """构建不落会话存储的问答 Agent（历史由本模块自管）。"""
         model = AiUtil.get_model_from_factory(
             provider=model_config.provider,
@@ -80,23 +80,67 @@ class KnowledgeChatService:
             temperature=model_config.temperature or 0.3,
             max_tokens=model_config.max_tokens,
         )
+        description = SYSTEM_PROMPT if not extra_instruction else f'{SYSTEM_PROMPT}\n{extra_instruction}'
         return Agent(
             model=model,
             id='kb-chat-agent',
-            description=SYSTEM_PROMPT,
+            description=description,
             markdown=True,
         )
 
     @classmethod
-    def _build_user_message(cls, content: str, context_text: str) -> str:
-        """组装送入模型的用户消息（证据上下文 + 原始问题）。"""
-        if not context_text:
-            return content
-        return (
-            f'以下是从授权知识库检索到的资料片段：\n\n{context_text}\n\n'
-            f'用户问题：{content}\n\n'
-            '请仅依据上述资料回答；若资料不足请明确说明，不要虚构出处。'
-        )
+    def _build_user_message(cls, content: str, context_text: str, history_text: str = '') -> str:
+        """组装送入模型的用户消息（历史 + 证据上下文 + 原始问题）。"""
+        parts: list[str] = []
+        if history_text:
+            parts.append(
+                f'以下是本会话此前的对话（仅用于理解指代，不得作为文献依据）：\n\n{history_text}'
+            )
+        if context_text:
+            parts.append(f'以下是从授权知识库检索到的资料片段：\n\n{context_text}')
+        parts.append(f'用户问题：{content}')
+        if context_text:
+            parts.append('请仅依据上述资料回答；若资料不足请明确说明，不要虚构出处。')
+        return '\n\n'.join(parts)
+
+    @classmethod
+    async def _build_history(cls, db: AsyncSession, session_id: str, limit: int = 6) -> str:
+        """读取当前会话最近的有效历史（仅用于理解指代，不作为文献依据）。"""
+        messages = await KnowledgeChatDao.get_recent_messages(db, session_id, limit=limit)
+        lines: list[str] = []
+        for msg in messages:
+            text = (msg.content or '').strip()
+            if not text or (msg.status and msg.status != 'completed'):
+                continue
+            role = '用户' if msg.role == 'user' else '助手'
+            lines.append(f'{role}：{text[:500]}')
+        return '\n'.join(lines)
+
+    _EVIDENCE_HINTS = ('依据', '引用', '出处', '文献', '教材', '来源', '证明', '根据资料', '原文')
+
+    @classmethod
+    def _resolve_branch(cls, retrieval_status: str, content: str) -> tuple[str | None, str]:
+        """按检索状态决定回答分支：返回 (额外指令, answerType)。"""
+        if retrieval_status == 'failed':
+            return (
+                '本轮检索暂不可用。请给出尽量有帮助的一般性回应，并明确说明'
+                '“检索暂不可用，以下内容不作为文献支持结论”，不得虚构引用或出处。',
+                'general',
+            )
+        if retrieval_status == 'no_match':
+            if any(hint in content for hint in cls._EVIDENCE_HINTS):
+                return (
+                    '本轮未检索到与问题直接对应的文献片段，而用户明显需要文献依据。'
+                    '请明确说明当前资料不足以提供该理论/文献证明，可建议补充资料或澄清问题，'
+                    '不得虚构书目、作者或页码。',
+                    'insufficient',
+                )
+            return (
+                '本轮未检索到与问题直接对应的文献片段。请以专业、温和的方式回应用户的一般性交流，'
+                '必要时说明“本回答没有对应文献依据”；不得虚构引用、书目或页码。',
+                'general',
+            )
+        return None, 'grounded'
 
     # ── 会话 ──────────────────────────────────────────────
     @classmethod
@@ -239,14 +283,17 @@ class KnowledgeChatService:
         principal: KbPrincipal,
         request: KbChatStreamRequestModel,
     ) -> AsyncGenerator[str, None]:
-        """流式回答入口：返回 NDJSON（每行一个事件，type 字段区分）。"""
+        """流式回答入口：返回 NDJSON（每行一个事件，type 字段区分）。
+
+        关键约束：任何 commit 之后不再同步读取 ORM 对象属性（避免 MissingGreenlet），
+        需要跨 commit 使用的值一律先提取为本地标量。
+        """
         content = (request.content or '').strip()
         if not content:
             yield json.dumps({'type': 'error', 'message': '问题不能为空'}, ensure_ascii=False) + '\n'
             return
 
-        # 1. 解析会话：路径 sessionId 不存在时按首条消息持久化会话
-        session = None
+        # 1. 解析会话（提取 session_id 为标量，后续 commit 后不再读 ORM）
         if request.session_id:
             session = await KnowledgeChatDao.get_session(db, request.session_id)
             if session is None:
@@ -255,6 +302,8 @@ class KnowledgeChatService:
                 raise PermissionException(message='无权访问该会话')
         else:
             session = await cls.create_session(db, user_id, [])
+        session_id: str = session.session_id
+        had_title: bool = bool(session.title)
 
         # 2. 过滤本轮授权知识库
         requested_ids = cls.parse_kb_ids(request.kb_ids)
@@ -267,107 +316,105 @@ class KnowledgeChatService:
                 {'type': 'error', 'message': '所选知识库无访问权限或已失效，请刷新后重选'}, ensure_ascii=False
             ) + '\n'
             return
-        if session.kb_ids != allowed_ids:
-            session.kb_ids = allowed_ids
+        session.kb_ids = allowed_ids
 
         # 3. 幂等：同一 clientRequestId 只生成一次
         duplicated = await KnowledgeChatDao.get_message_by_client_request_id(
-            db, session.session_id, request.client_request_id
+            db, session_id, request.client_request_id
         )
         if duplicated is not None:
+            duplicated_id = duplicated.message_id
             yield json.dumps(
-                {'type': 'duplicate', 'sessionId': session.session_id, 'messageId': duplicated.message_id},
+                {'type': 'duplicate', 'sessionId': session_id, 'messageId': duplicated_id},
                 ensure_ascii=False,
             ) + '\n'
             return
 
-        # 4. 持久化用户消息（立即提交，保证断网/中断后用户消息仍可恢复）
+        # 4. 读取历史（仅生成用，检索只用当前问题）
+        history_text = await cls._build_history(db, session_id, limit=6)
+
+        # 5. 持久化用户消息：提交前提取 ID，提交后不再触碰 ORM
         user_message = await KnowledgeChatDao.add_message(
             db,
             KbChatMessage(
-                session_id=session.session_id,
+                session_id=session_id,
                 role='user',
                 content=content,
                 status='completed',
                 client_request_id=request.client_request_id,
             ),
         )
-        if not session.title:
+        user_message_id: int = user_message.message_id
+        if not had_title:
             session.title = content[:20]
         await db.commit()
 
-        # 5. 预建助手消息（供 meta 事件返回 messageId）
+        # 6. 预建助手消息并提取 ID
         assistant_message = await KnowledgeChatDao.add_message(
             db,
             KbChatMessage(
-                session_id=session.session_id,
+                session_id=session_id,
                 role='assistant',
                 content='',
                 status='generating',
                 retry_of_message_id=request.retry_of_message_id,
             ),
         )
+        assistant_message_id: int = assistant_message.message_id
         yield json.dumps(
             {
                 'type': 'meta',
-                'sessionId': session.session_id,
-                'userMessageId': user_message.message_id,
-                'messageId': assistant_message.message_id,
+                'sessionId': session_id,
+                'userMessageId': user_message_id,
+                'messageId': assistant_message_id,
             },
             ensure_ascii=False,
         ) + '\n'
 
-        # 6. 检索
+        # 7. 检索（异常与零命中分开记录）
         yield json.dumps({'type': 'status', 'stage': 'retrieving', 'message': '正在检索资料'}, ensure_ascii=False) + '\n'
+        retrieval_status = 'matched'
+        context = None
         try:
-            context = await RagContextBuilder.build(
-                db, content, allowed_ids, top_k=5, max_chars_per_chunk=800
-            )
+            context = await RagContextBuilder.build(db, content, allowed_ids, top_k=5, max_chars_per_chunk=800)
         except Exception:
             logger.exception('知识对话检索失败')
-            yield json.dumps(
-                {'type': 'error', 'message': '检索服务异常，请稍后重试', 'messageId': assistant_message.message_id},
-                ensure_ascii=False,
-            ) + '\n'
-            assistant_message.status = 'failed'
-            return
+            retrieval_status = 'failed'
+            context = None
 
-        # 7. 无证据 → 依据不足短答复
-        if not context.citations:
-            assistant_message.content = INSUFFICIENT_TEXT
-            assistant_message.status = 'completed'
-            assistant_message.answer_type = 'insufficient'
-            assistant_message.citation_status = 'not_applicable'
-            await db.commit()
-            yield json.dumps(
-                {'type': 'delta', 'content': INSUFFICIENT_TEXT}, ensure_ascii=False
-            ) + '\n'
+        if retrieval_status == 'failed':
+            # 检索故障：若模型可用则给出标注限制的一般回应，否则 error
             yield json.dumps(
                 {
-                    'type': 'done',
-                    'messageId': assistant_message.message_id,
-                    'status': 'completed',
-                    'answerType': 'insufficient',
-                    'citationStatus': 'not_applicable',
-                    'finalContent': INSUFFICIENT_TEXT,
+                    'type': 'status',
+                    'stage': 'generating',
+                    'message': '检索暂不可用，以下不作为文献支持结论',
                 },
                 ensure_ascii=False,
             ) + '\n'
-            return
 
-        # 8. 流式生成
-        model_config = await cls._resolve_model(db)
+        if retrieval_status == 'matched' and not context.citations:
+            retrieval_status = 'no_match'
+
+        # 8. 解析模型（失败则诚实报错，不留空白）
+        try:
+            model_config = await cls._resolve_model(db)
+        except Exception:
+            logger.exception('解析AI模型失败')
+            model_config = None
         if model_config is None:
-            assistant_message.status = 'failed'
+            await KnowledgeChatDao.update_message(db, assistant_message_id, status='failed')
+            await db.commit()
             yield json.dumps(
-                {'type': 'error', 'message': '未配置可用的AI模型', 'messageId': assistant_message.message_id},
+                {'type': 'error', 'message': '未配置可用的AI模型，请稍后重试', 'messageId': assistant_message_id},
                 ensure_ascii=False,
             ) + '\n'
             return
 
-        assistant_message.model_name = model_config.model_name or model_config.model_code
-        agent = cls._build_agent(model_config)
-        user_prompt = cls._build_user_message(content, context.text)
+        model_name: str = model_config.model_name or model_config.model_code
+        branch_instruction, answer_type = cls._resolve_branch(retrieval_status, content)
+        agent = cls._build_agent(model_config, extra_instruction=branch_instruction)
+        user_prompt = cls._build_user_message(content, context.text if context else '', history_text)
 
         yield json.dumps(
             {'type': 'status', 'stage': 'generating', 'message': '正在生成回答'}, ensure_ascii=False
@@ -379,82 +426,98 @@ class KnowledgeChatService:
             async for chunk in response_stream:
                 if isinstance(chunk, RunOutputEvent):
                     if chunk.event == RunEvent.run_started and chunk.run_id:
-                        cls._active_runs[assistant_message.message_id] = chunk.run_id
+                        cls._active_runs[assistant_message_id] = chunk.run_id
                     if chunk.event == RunEvent.run_content and chunk.content:
                         full_response += chunk.content
                         yield json.dumps({'type': 'delta', 'content': chunk.content}, ensure_ascii=False) + '\n'
         except Exception:
             logger.exception('知识对话模型调用失败')
-            if assistant_message.message_id in cls._cancelled:
-                cls._cancelled.discard(assistant_message.message_id)
-                assistant_message.status = 'cancelled'
+            cls._active_runs.pop(assistant_message_id, None)
+            if assistant_message_id in cls._cancelled:
+                cls._cancelled.discard(assistant_message_id)
+                await KnowledgeChatDao.update_message(db, assistant_message_id, status='cancelled')
+                await db.commit()
             else:
-                assistant_message.status = 'failed'
+                await KnowledgeChatDao.update_message(db, assistant_message_id, status='failed')
+                await db.commit()
                 yield json.dumps(
-                    {'type': 'error', 'message': '模型调用失败，请稍后重试', 'messageId': assistant_message.message_id},
+                    {'type': 'error', 'message': '模型调用失败，请稍后重试', 'messageId': assistant_message_id},
                     ensure_ascii=False,
                 ) + '\n'
             return
         finally:
-            cls._active_runs.pop(assistant_message.message_id, None)
+            cls._active_runs.pop(assistant_message_id, None)
 
-        # 9. 校验引用编号并持久化证据快照
-        used_numbers = {int(m) for m in _CITATION_PATTERN.findall(full_response)}
-        invalid_numbers = sorted(n for n in used_numbers if n < 1 or n > len(context.citations))
-        valid_numbers = sorted(n for n in used_numbers if 1 <= n <= len(context.citations))
+        # 空流保护：模型未产出任何内容
+        if not full_response.strip():
+            await KnowledgeChatDao.update_message(db, assistant_message_id, status='failed')
+            await db.commit()
+            yield json.dumps(
+                {'type': 'error', 'message': '模型未返回内容，请稍后重试', 'messageId': assistant_message_id},
+                ensure_ascii=False,
+            ) + '\n'
+            return
 
-        # 书目元数据补全：优先文档已录入的正式标题/作者/文献类型，缺失时回退上传文件名
-        doc_ids = [src.get('doc_id') for src in context.citations if src.get('doc_id')]
-        doc_meta = {d.doc_id: d for d in await DocumentDao.get_by_ids(db, doc_ids)}
-
+        # 9. 构建引用快照（先序列化，避免提交后再读 ORM）
         citations: list[KbChatCitation] = []
-        for number in valid_numbers:
-            src = context.citations[number - 1]
-            doc = doc_meta.get(src.get('doc_id'))
-            citations.append(
-                KbChatCitation(
-                    message_id=assistant_message.message_id,
-                    citation_no=number,
-                    doc_id=src.get('doc_id'),
-                    chunk_id=src.get('chunk_id'),
-                    kb_id=src.get('kb_id'),
-                    title=(doc.title if doc and doc.title else None)
-                    or src.get('doc_name')
-                    or f"文档{src.get('doc_id')}",
-                    source_type=(doc.source_type if doc and doc.source_type else None) or 'other',
-                    authors=doc.authors if doc and doc.authors else None,
-                    heading_path=src.get('heading_path'),
-                    page_label=cls._page_label(src.get('page')),
-                    locator_type=cls._locator_type(src),
-                    excerpt=(context.results[number - 1].get('content') or '')[:2000],
-                )
-            )
-        await KnowledgeChatDao.add_citations(db, citations)
+        citation_summaries: list[dict[str, Any]] = []
+        citation_status = 'not_applicable'
+        if retrieval_status == 'matched' and context and context.citations:
+            used_numbers = {int(m) for m in _CITATION_PATTERN.findall(full_response)}
+            invalid_numbers = sorted(n for n in used_numbers if n < 1 or n > len(context.citations))
+            valid_numbers = sorted(n for n in used_numbers if 1 <= n <= len(context.citations))
 
-        if invalid_numbers or not valid_numbers:
-            assistant_message.citation_status = 'needs_review'
-        else:
-            assistant_message.citation_status = 'valid'
-        assistant_message.answer_type = 'grounded'
-        assistant_message.content = full_response
-        assistant_message.status = 'completed'
-        # 回答与引用快照落库后再发 done，保证前端刷新后能读到一致历史
+            doc_ids = [src.get('doc_id') for src in context.citations if src.get('doc_id')]
+            doc_meta = {d.doc_id: d for d in await DocumentDao.get_by_ids(db, doc_ids)}
+
+            for number in valid_numbers:
+                src = context.citations[number - 1]
+                doc = doc_meta.get(src.get('doc_id'))
+                citations.append(
+                    KbChatCitation(
+                        message_id=assistant_message_id,
+                        citation_no=number,
+                        doc_id=src.get('doc_id'),
+                        chunk_id=src.get('chunk_id'),
+                        kb_id=src.get('kb_id'),
+                        title=(doc.title if doc and doc.title else None)
+                        or src.get('doc_name')
+                        or f"文档{src.get('doc_id')}",
+                        source_type=(doc.source_type if doc and doc.source_type else None) or 'other',
+                        authors=doc.authors if doc and doc.authors else None,
+                        heading_path=src.get('heading_path'),
+                        page_label=cls._page_label(src.get('page')),
+                        locator_type=cls._locator_type(src),
+                        excerpt=(context.results[number - 1].get('content') or '')[:2000],
+                    )
+                )
+            await KnowledgeChatDao.add_citations(db, citations)
+            citation_status = 'needs_review' if (invalid_numbers or not valid_numbers) else 'valid'
+            citation_summaries = [cls._citation_summary(c) for c in citations]
+
+        # 10. 落库完成态（提交前已持有全部标量，提交后不再读 ORM）
+        await KnowledgeChatDao.update_message(
+            db,
+            assistant_message_id,
+            content=full_response,
+            status='completed',
+            answer_type=answer_type,
+            citation_status=citation_status,
+            retrieval_status=retrieval_status,
+            model_name=model_name,
+        )
         await db.commit()
 
-        yield json.dumps(
-            {
-                'type': 'citations',
-                'items': [cls._citation_summary(c) for c in citations],
-            },
-            ensure_ascii=False,
-        ) + '\n'
+        if citation_summaries:
+            yield json.dumps({'type': 'citations', 'items': citation_summaries}, ensure_ascii=False) + '\n'
         yield json.dumps(
             {
                 'type': 'done',
-                'messageId': assistant_message.message_id,
+                'messageId': assistant_message_id,
                 'status': 'completed',
-                'answerType': 'grounded',
-                'citationStatus': assistant_message.citation_status,
+                'answerType': answer_type,
+                'citationStatus': citation_status,
+                'retrievalStatus': retrieval_status,
                 'finalContent': full_response,
             },
             ensure_ascii=False,

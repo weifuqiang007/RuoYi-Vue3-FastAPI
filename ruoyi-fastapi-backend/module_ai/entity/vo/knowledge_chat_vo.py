@@ -70,8 +70,9 @@ class KbChatMessageModel(BaseModel):
     role: str | None = Field(default=None, description='角色（user/assistant）')
     content: str | None = Field(default=None, description='消息内容')
     status: str | None = Field(default=None, description='状态（generating/completed/failed/cancelled）')
-    answer_type: str | None = Field(default=None, description='回答类型（grounded/insufficient/clarification）')
+    answer_type: str | None = Field(default=None, description='回答类型（grounded/general/insufficient/clarification）')
     citation_status: str | None = Field(default=None, description='引用状态（pending/valid/needs_review/not_applicable）')
+    retrieval_status: str | None = Field(default=None, description='检索状态（matched/no_match/failed/not_attempted）')
     citations: list[KbChatCitationModel] | None = Field(default=None, description='引用列表')
     created_at: datetime | None = Field(default=None, description='创建时间')
 

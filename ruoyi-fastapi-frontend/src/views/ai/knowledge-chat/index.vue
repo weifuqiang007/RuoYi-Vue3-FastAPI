@@ -348,6 +348,7 @@ async function handleSend() {
     const decoder = new TextDecoder();
     let buffer = "";
     let assistantMsg = messages.value[assistantIndex];
+    let receivedTerminal = false;
 
     while (true) {
       if (!abortController.value) break;
@@ -366,7 +367,30 @@ async function handleSend() {
         } catch (e) {
           continue;
         }
-        handleStreamEvent(data, assistantIndex);
+        receivedTerminal = handleStreamEvent(data, assistantIndex) || receivedTerminal;
+      }
+    }
+
+    // 流末尾残留的末行（正常 done 后通常为空或纯空白）
+    if (buffer.trim()) {
+      try {
+        const data = JSON.parse(buffer);
+        receivedTerminal = handleStreamEvent(data, assistantIndex) || receivedTerminal;
+      } catch (e) {
+        /* 末行不完整，忽略 */
+      }
+    }
+
+    // EOF 无终态：与服务端历史对齐，不自动重调模型
+    if (!receivedTerminal) {
+      assistantMsg = messages.value[assistantIndex];
+      if (assistantMsg && assistantMsg.streaming) {
+        assistantMsg.streaming = false;
+        assistantMsg.status = "failed";
+        assistantMsg.errorText = "连接中断，正在核对消息状态";
+      }
+      if (activeSessionId.value) {
+        loadMessages(activeSessionId.value);
       }
     }
   } catch (err) {
@@ -391,7 +415,7 @@ async function handleSend() {
 
 function handleStreamEvent(data, assistantIndex) {
   const assistantMsg = messages.value[assistantIndex];
-  if (!assistantMsg) return;
+  if (!assistantMsg) return false;
 
   switch (data.type) {
     case "meta":
@@ -408,28 +432,37 @@ function handleStreamEvent(data, assistantIndex) {
     case "citations":
       assistantMsg.citations = data.items || [];
       break;
-    case "done":
-      if (data.finalContent) {
-        assistantMsg.content = data.finalContent;
+    case "done": {
+      // 空 finalContent 且没有增量内容 → 视为失败，不留空白气泡
+      const finalContent = data.finalContent ?? assistantMsg.content;
+      if (!finalContent || !String(finalContent).trim()) {
+        assistantMsg.streaming = false;
+        assistantMsg.status = "failed";
+        assistantMsg.errorText = "模型未返回内容";
+        return true;
       }
+      assistantMsg.content = data.finalContent || assistantMsg.content;
       assistantMsg.status = data.status || "completed";
       assistantMsg.answerType = data.answerType;
       assistantMsg.citationStatus = data.citationStatus;
+      assistantMsg.retrievalStatus = data.retrievalStatus;
       assistantMsg.streaming = false;
-      break;
+      return true;
+    }
     case "error":
       assistantMsg.streaming = false;
       assistantMsg.status = "failed";
       assistantMsg.errorText = data.message || "生成失败";
-      break;
+      return true;
     case "duplicate":
       activeSessionId.value = data.sessionId;
       // 重复提交：直接刷新历史，不追加
       loadMessages(data.sessionId);
-      break;
+      return true;
     default:
       break;
   }
+  return false;
 }
 
 function openCitation(citationNo, msg) {

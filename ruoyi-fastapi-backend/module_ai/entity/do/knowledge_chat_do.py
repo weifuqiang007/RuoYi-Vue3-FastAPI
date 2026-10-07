@@ -53,6 +53,10 @@ class KbChatMessage(Base):
     client_request_id = Column(String(64), comment='前端幂等请求ID，防止重复提交重复生成')
     retry_of_message_id = Column(BigInteger, comment='重试来源的助手消息ID，非重试为NULL')
     model_name = Column(String(100), comment='生成本条回答的模型名称')
+    retrieval_status = Column(
+        String(20),
+        comment='检索状态（matched 有命中 no_match 零命中 failed 检索失败 not_attempted 未检索）',
+    )
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
 
 
