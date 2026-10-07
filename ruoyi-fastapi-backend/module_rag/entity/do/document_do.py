@@ -1,7 +1,11 @@
 # module_rag/entity/do/document_do.py
 from datetime import datetime
+
 from sqlalchemy import CHAR, BigInteger, Column, DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
+
 from config.database import Base
+
 
 class RagDocument(Base):
     """RAG文档表"""
@@ -20,6 +24,14 @@ class RagDocument(Base):
     error_msg = Column(String(500), nullable=True, comment='错误信息')
     user_id = Column(BigInteger, nullable=True, comment='用户ID')
     dept_id = Column(BigInteger, nullable=True, comment='部门ID')
+    # ── 书目元数据（社会工作教学与研究助手引用展示用，上传者/管理员可编辑）──
+    source_type = Column(String(20), nullable=True, comment='文献类型（textbook 教材 article 文章 other 其他）')
+    title = Column(String(255), nullable=True, comment='正式文献标题，区别于上传文件名 doc_name')
+    authors = Column(JSONB, nullable=True, comment='作者列表，JSON数组如["张三"]')
+    publication_year = Column(Integer, nullable=True, comment='出版/发表年份')
+    edition = Column(String(50), nullable=True, comment='版次')
+    publisher_or_journal = Column(String(255), nullable=True, comment='出版社/期刊名')
+    doi_or_url = Column(String(500), nullable=True, comment='DOI或URL')
     del_flag = Column(CHAR(1), nullable=True, server_default='0', comment='删除标志')
     create_by = Column(String(64), nullable=True, server_default="''", comment='创建者')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')

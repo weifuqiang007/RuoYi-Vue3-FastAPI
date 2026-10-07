@@ -68,11 +68,19 @@
               <template v-else>
                 <div class="assistant-wrap">
                   <AssistantMessage
-                    v-if="msg.status !== 'failed'"
+                    v-if="msg.status !== 'failed' && msg.status !== 'cancelled'"
                     :content="msg.content"
                     :citations="msg.citations"
                     :streaming="msg.streaming"
                     @open-citation="(no) => openCitation(no, msg)"
+                  />
+                  <el-alert
+                    v-else-if="msg.status === 'cancelled'"
+                    type="warning"
+                    :closable="false"
+                    title="已停止生成"
+                    :description="msg.content || '该回答未完成，不作为可靠依据'"
+                    show-icon
                   />
                   <el-alert
                     v-else
@@ -111,14 +119,17 @@
           />
           <div class="composer-actions">
             <span class="composer-note">辅助教学与研究，重要结论请核对原文</span>
-            <el-button
-              type="primary"
-              :loading="sending"
-              :disabled="!canSend"
-              @click="handleSend"
-            >
-              发送
-            </el-button>
+            <div class="composer-buttons">
+              <el-button v-if="sending" @click="handleStop">停止</el-button>
+              <el-button
+                type="primary"
+                :loading="sending"
+                :disabled="!canSend"
+                @click="handleSend"
+              >
+                发送
+              </el-button>
+            </div>
           </div>
         </el-footer>
       </el-container>
@@ -140,6 +151,7 @@ import {
   listKnowledgeBases,
   listKnowledgeChatSessions,
   listKnowledgeChatMessages,
+  cancelKnowledgeChatMessage,
 } from "@/api/ai/knowledgeChat";
 import SessionSidebar from "./components/SessionSidebar.vue";
 import AssistantMessage from "./components/AssistantMessage.vue";
@@ -162,6 +174,7 @@ const inputMessage = ref("");
 const sending = ref(false);
 const stage = ref("");
 const abortController = ref(null);
+const streamingMessageId = ref(null);
 
 const bodyRef = ref(null);
 
@@ -384,6 +397,7 @@ function handleStreamEvent(data, assistantIndex) {
     case "meta":
       activeSessionId.value = data.sessionId;
       assistantMsg.messageId = data.messageId;
+      streamingMessageId.value = data.messageId;
       break;
     case "status":
       stage.value = data.stage;
@@ -423,6 +437,33 @@ function openCitation(citationNo, msg) {
   drawerMessageId.value = msg.messageId;
   drawerCitationNo.value = citationNo;
   drawerVisible.value = true;
+}
+
+async function handleStop() {
+  if (!sending.value) return;
+  const messageId = streamingMessageId.value;
+  // 中断前端流读取
+  abortController.value?.abort();
+  sending.value = false;
+  stage.value = "";
+  // 通知后端取消运行并落库
+  if (messageId != null) {
+    try {
+      await cancelKnowledgeChatMessage(messageId);
+    } catch (e) {
+      /* 忽略取消接口异常 */
+    }
+  }
+  // 本地标记最后一条助手消息为已停止
+  const last = messages.value[messages.value.length - 1];
+  if (last && last.role === "assistant" && last.streaming) {
+    last.streaming = false;
+    last.status = "cancelled";
+    last.errorText = "已停止生成";
+  }
+  streamingMessageId.value = null;
+  abortController.value = null;
+  loadSessions();
 }
 
 onMounted(() => {
@@ -567,5 +608,10 @@ onMounted(() => {
 .composer-note {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+.composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

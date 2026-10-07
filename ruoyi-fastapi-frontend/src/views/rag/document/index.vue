@@ -60,8 +60,11 @@
       </el-table-column>
       <el-table-column label="分块数" prop="chunk_count" width="80" align="center" />
       <el-table-column label="创建时间" prop="create_time" width="170" />
-      <el-table-column label="操作" width="200" align="center">
+      <el-table-column label="操作" width="260" align="center">
         <template #default="scope">
+          <el-button link type="primary" icon="Edit" @click="handleEditMetadata(scope.row)">
+            书目
+          </el-button>
           <el-button link type="primary" icon="View" @click="handleDetail(scope.row)">
             详情
           </el-button>
@@ -179,13 +182,58 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 书目元数据编辑对话框（F08） -->
+    <el-dialog title="书目元数据" v-model="metadataVisible" width="560px" append-to-body>
+      <el-form label-width="110px">
+        <el-form-item label="文献类型">
+          <el-select v-model="metadataForm.sourceType" placeholder="请选择" style="width: 100%" clearable>
+            <el-option label="教材" value="textbook" />
+            <el-option label="文章" value="article" />
+            <el-option label="其他" value="other" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="正式标题">
+          <el-input v-model="metadataForm.title" placeholder="区别于上传文件名，可留空" />
+        </el-form-item>
+        <el-form-item label="作者">
+          <el-select
+            v-model="metadataForm.authors"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入作者后回车"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="出版/发表年份">
+          <el-input-number v-model="metadataForm.publicationYear" :min="0" :max="2100" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="版次">
+          <el-input v-model="metadataForm.edition" placeholder="如：第3版" />
+        </el-form-item>
+        <el-form-item label="出版社/期刊">
+          <el-input v-model="metadataForm.publisherOrJournal" />
+        </el-form-item>
+        <el-form-item label="DOI/URL">
+          <el-input v-model="metadataForm.doiOrUrl" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="metadataVisible = false">取 消</el-button>
+        <el-button type="primary" :loading="metadataSaving" @click="submitMetadata">
+          确 定
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listAllDocument, uploadDocument, downloadDocument, delDocument } from '@/api/rag/document'
+import { listAllDocument, uploadDocument, downloadDocument, delDocument, updateDocumentMetadata } from '@/api/rag/document'
 import { listChunk, updateChunk } from '@/api/rag/chunk'
 import { listKnowledgeBase } from '@/api/rag/knowledgeBase'
 
@@ -198,6 +246,19 @@ const uploadDialogVisible = ref(false)
 const uploadKbId = ref(null)
 const uploadFile = ref(null)
 const uploading = ref(false)
+
+const metadataVisible = ref(false)
+const metadataSaving = ref(false)
+const metadataForm = ref({
+  docId: null,
+  sourceType: null,
+  title: '',
+  authors: [],
+  publicationYear: null,
+  edition: '',
+  publisherOrJournal: '',
+  doiOrUrl: '',
+})
 const uploadRef = ref()
 
 async function getKbOptions() {
@@ -297,6 +358,34 @@ function handleDelete(row) {
       await getList()
     })
     .catch(() => {})
+}
+
+// ── 书目元数据编辑（F08）──
+function handleEditMetadata(row) {
+  metadataForm.value = {
+    docId: row.doc_id,
+    sourceType: row.source_type || null,
+    title: row.title || '',
+    authors: row.authors || [],
+    publicationYear: row.publication_year || null,
+    edition: row.edition || '',
+    publisherOrJournal: row.publisher_or_journal || '',
+    doiOrUrl: row.doi_or_url || '',
+  }
+  metadataVisible.value = true
+}
+
+async function submitMetadata() {
+  if (metadataForm.value.docId == null) return
+  metadataSaving.value = true
+  try {
+    await updateDocumentMetadata(metadataForm.value)
+    ElMessage.success('书目信息已更新')
+    metadataVisible.value = false
+    await getList()
+  } finally {
+    metadataSaving.value = false
+  }
 }
 
 // ── 分块详情 ──

@@ -3,7 +3,7 @@ import io
 from typing import Annotated, Optional
 from urllib.parse import quote
 
-from fastapi import File, Path, Query, UploadFile
+from fastapi import File, Path, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,7 @@ from common.aspect.interface_auth import RoleInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.router import APIRouterPro
 from module_admin.entity.vo.user_vo import CurrentUserModel
-from module_rag.entity.vo.document_vo import DocumentResponseModel
+from module_rag.entity.vo.document_vo import DocumentMetadataUpdateModel, DocumentResponseModel
 from module_rag.service.document_service import DocumentService
 from utils.response_util import ResponseUtil
 
@@ -136,3 +136,16 @@ class DocumentController:
         ids = [int(i) for i in doc_ids.split(',')]
         await DocumentService.delete_documents(query_db, ids)
         return ResponseUtil.success(msg='删除成功')
+
+    # ── 更新书目元数据（F08）────────────────────
+    @staticmethod
+    @document_controller.put('/metadata', summary='更新文档书目元数据')
+    async def update_metadata(
+        data: DocumentMetadataUpdateModel,
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        current_user: CurrentUserModel = CurrentUserDependency(),
+    ) -> Response:
+        """最小书目信息维护：文献类型、正式标题、作者、年份、版次、出版社/期刊、DOI/URL"""
+        is_admin = bool(getattr(current_user.user, 'admin', False))
+        await DocumentService.update_metadata(query_db, data, current_user.user.user_id, is_admin)
+        return ResponseUtil.success(msg='更新成功')

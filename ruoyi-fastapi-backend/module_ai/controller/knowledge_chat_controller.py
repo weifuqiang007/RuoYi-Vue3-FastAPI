@@ -117,3 +117,16 @@ class KnowledgeChatController:
     ) -> Response:
         citation = await KnowledgeChatService.get_citation(query_db, principal, message_id, citation_no)
         return ResponseUtil.success(data=citation)
+
+    # ── 停止生成 ──────────────────────────────────────────
+    @staticmethod
+    @knowledge_chat_controller.post('/messages/{message_id}/cancel', summary='停止生成')
+    async def cancel_stream(
+        message_id: Annotated[int, Path(description='助手消息ID')],
+        query_db: Annotated[AsyncSession, DBSessionDependency()],
+        principal: KbPrincipal = ViewerDependency('rag.knowledge_base'),
+    ) -> Response:
+        cancelled = await KnowledgeChatService.cancel_stream(query_db, principal.user_id, message_id)
+        if not cancelled:
+            return ResponseUtil.failure(msg='消息不存在或不可取消')
+        return ResponseUtil.success(msg='已停止生成')

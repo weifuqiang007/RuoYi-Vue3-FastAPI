@@ -43,3 +43,11 @@ export function getKnowledgeChatCitation(messageId, citationNo) {
     method: "get",
   });
 }
+
+// 停止生成
+export function cancelKnowledgeChatMessage(messageId) {
+  return request({
+    url: "/ai/knowledge-chat/messages/" + messageId + "/cancel",
+    method: "post",
+  });
+}

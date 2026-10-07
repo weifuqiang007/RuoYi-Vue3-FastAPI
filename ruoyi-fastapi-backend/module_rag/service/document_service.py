@@ -9,11 +9,12 @@ import uuid
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from exceptions.exception import ServiceException
+from exceptions.exception import PermissionException, ServiceException
 from module_rag.dao.document_dao import DocumentDao
 from module_rag.dao.chunk_dao import ChunkDao
 from module_rag.dao.knowledge_base_dao import KnowledgeBaseDao
 from module_rag.entity.do.document_do import RagDocument
+from module_rag.entity.vo.document_vo import DocumentMetadataUpdateModel
 from module_rag.service.parser import get_parser
 from module_rag.service.chunker.fixed_chunker import FixedChunker
 from module_rag.service.embedding_service import EmbeddingService
@@ -24,6 +25,27 @@ from utils.log_util import logger
 
 class DocumentService:
     """文档业务服务 —— MinIO 调用与 DB 操作全部收口在此，controller 只做参数接收与响应封装"""
+
+    @classmethod
+    async def update_metadata(
+        cls, db: AsyncSession, data: DocumentMetadataUpdateModel, user_id: int, is_admin: bool
+    ) -> None:
+        """更新文档书目元数据（F08）：仅上传者或管理员可改，模型不得自动填充出处。"""
+        doc = await DocumentDao.get_by_id(db, data.doc_id)
+        if doc is None:
+            raise PermissionException(message='文档不存在')
+        if not is_admin and doc.user_id != user_id:
+            raise PermissionException(message='无权修改他人的文档')
+        update_data = {
+            'source_type': data.source_type,
+            'title': data.title,
+            'authors': data.authors,
+            'publication_year': data.publication_year,
+            'edition': data.edition,
+            'publisher_or_journal': data.publisher_or_journal,
+            'doi_or_url': data.doi_or_url,
+        }
+        await DocumentDao.update_metadata(db, data.doc_id, **update_data)
 
     @classmethod
     async def upload_document(cls, db: AsyncSession, kb_id: int, file: UploadFile, user_id: int) -> RagDocument:

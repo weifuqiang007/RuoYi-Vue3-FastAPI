@@ -14,6 +14,7 @@ from typing import Any
 
 from agno.agent import Agent
 from agno.run.agent import RunEvent, RunOutputEvent
+from agno.run.cancel import acancel_run
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +23,7 @@ from module_ai.dao.knowledge_chat_dao import KnowledgeChatDao
 from module_ai.entity.do.ai_model_do import AiModels
 from module_ai.entity.do.knowledge_chat_do import KbChatCitation, KbChatMessage, KbChatSession
 from module_ai.entity.vo.knowledge_chat_vo import KbChatStreamRequestModel
+from module_rag.dao.document_dao import DocumentDao
 from module_rag.service.context_builder import RagContextBuilder
 from module_rag.service.kb_scope_policy import KbPrincipal
 from module_rag.service.knowledge_base_service import KnowledgeBaseService
@@ -51,6 +53,11 @@ _CITATION_PATTERN = re.compile(r'\[(\d+)\]')
 
 class KnowledgeChatService:
     """知识对话服务层"""
+
+    # 运行中生成任务登记：message_id -> agno run_id，供“停止生成”取消
+    _active_runs: dict[int, str] = {}
+    # 已被取消的消息ID集合，流式异常收尾时据此标 cancelled 而非 failed
+    _cancelled: set[int] = set()
 
     # ── 模型解析 ──────────────────────────────────────────
     @classmethod
@@ -370,26 +377,40 @@ class KnowledgeChatService:
         try:
             response_stream = agent.arun(user_prompt, stream=True, stream_events=True)
             async for chunk in response_stream:
-                if isinstance(chunk, RunOutputEvent) and chunk.event == RunEvent.run_content and chunk.content:
-                    full_response += chunk.content
-                    yield json.dumps({'type': 'delta', 'content': chunk.content}, ensure_ascii=False) + '\n'
+                if isinstance(chunk, RunOutputEvent):
+                    if chunk.event == RunEvent.run_started and chunk.run_id:
+                        cls._active_runs[assistant_message.message_id] = chunk.run_id
+                    if chunk.event == RunEvent.run_content and chunk.content:
+                        full_response += chunk.content
+                        yield json.dumps({'type': 'delta', 'content': chunk.content}, ensure_ascii=False) + '\n'
         except Exception:
             logger.exception('知识对话模型调用失败')
-            assistant_message.status = 'failed'
-            yield json.dumps(
-                {'type': 'error', 'message': '模型调用失败，请稍后重试', 'messageId': assistant_message.message_id},
-                ensure_ascii=False,
-            ) + '\n'
+            if assistant_message.message_id in cls._cancelled:
+                cls._cancelled.discard(assistant_message.message_id)
+                assistant_message.status = 'cancelled'
+            else:
+                assistant_message.status = 'failed'
+                yield json.dumps(
+                    {'type': 'error', 'message': '模型调用失败，请稍后重试', 'messageId': assistant_message.message_id},
+                    ensure_ascii=False,
+                ) + '\n'
             return
+        finally:
+            cls._active_runs.pop(assistant_message.message_id, None)
 
         # 9. 校验引用编号并持久化证据快照
         used_numbers = {int(m) for m in _CITATION_PATTERN.findall(full_response)}
         invalid_numbers = sorted(n for n in used_numbers if n < 1 or n > len(context.citations))
         valid_numbers = sorted(n for n in used_numbers if 1 <= n <= len(context.citations))
 
+        # 书目元数据补全：优先文档已录入的正式标题/作者/文献类型，缺失时回退上传文件名
+        doc_ids = [src.get('doc_id') for src in context.citations if src.get('doc_id')]
+        doc_meta = {d.doc_id: d for d in await DocumentDao.get_by_ids(db, doc_ids)}
+
         citations: list[KbChatCitation] = []
         for number in valid_numbers:
             src = context.citations[number - 1]
+            doc = doc_meta.get(src.get('doc_id'))
             citations.append(
                 KbChatCitation(
                     message_id=assistant_message.message_id,
@@ -397,9 +418,11 @@ class KnowledgeChatService:
                     doc_id=src.get('doc_id'),
                     chunk_id=src.get('chunk_id'),
                     kb_id=src.get('kb_id'),
-                    title=src.get('doc_name') or f"文档{src.get('doc_id')}",
-                    source_type='other',
-                    authors=None,
+                    title=(doc.title if doc and doc.title else None)
+                    or src.get('doc_name')
+                    or f"文档{src.get('doc_id')}",
+                    source_type=(doc.source_type if doc and doc.source_type else None) or 'other',
+                    authors=doc.authors if doc and doc.authors else None,
                     heading_path=src.get('heading_path'),
                     page_label=cls._page_label(src.get('page')),
                     locator_type=cls._locator_type(src),
@@ -436,6 +459,25 @@ class KnowledgeChatService:
             },
             ensure_ascii=False,
         ) + '\n'
+
+    # ── 停止生成 ──────────────────────────────────────────
+    @classmethod
+    async def cancel_stream(cls, db: AsyncSession, user_id: int, message_id: int) -> bool:
+        """取消进行中的流式生成：取消 agno run 并把消息标记为 cancelled。"""
+        message = await KnowledgeChatDao.get_message(db, message_id)
+        if message is None or message.role != 'assistant':
+            return False
+        session = await KnowledgeChatDao.get_session(db, message.session_id)
+        if session is None or session.user_id != user_id:
+            raise PermissionException(message='无权操作该消息')
+
+        run_id = cls._active_runs.pop(message_id, None)
+        if run_id:
+            await acancel_run(run_id)
+        cls._cancelled.add(message_id)
+        message.status = 'cancelled'
+        await db.commit()
+        return True
 
     # ── 工具方法 ──────────────────────────────────────────
     @staticmethod

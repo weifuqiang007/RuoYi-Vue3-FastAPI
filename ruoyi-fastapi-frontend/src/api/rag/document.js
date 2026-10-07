@@ -48,3 +48,12 @@ export function delDocument(docIds) {
     method: 'delete'
   })
 }
+
+// 更新文档书目元数据（F08）
+export function updateDocumentMetadata(data) {
+  return request({
+    url: '/rag/document/metadata',
+    method: 'put',
+    data: data
+  })
+}

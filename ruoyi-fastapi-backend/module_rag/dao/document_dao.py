@@ -1,6 +1,7 @@
 # module_rag/dao/document_dao.py
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from module_rag.entity.do.document_do import RagDocument
 
 
@@ -12,6 +13,16 @@ class DocumentDao:
             select(RagDocument).where(RagDocument.doc_id == doc_id, RagDocument.del_flag == '0')
         )
         return result.scalars().first()
+
+    @classmethod
+    async def get_by_ids(cls, db: AsyncSession, doc_ids: list[int]) -> list[RagDocument]:
+        """按 id 批量取未删除文档（引用元数据补全用）。"""
+        if not doc_ids:
+            return []
+        result = await db.execute(
+            select(RagDocument).where(RagDocument.doc_id.in_(doc_ids), RagDocument.del_flag == '0')
+        )
+        return list(result.scalars().all())
 
 
     @classmethod
@@ -38,7 +49,14 @@ class DocumentDao:
         return doc
 
     @classmethod
-    async def update_status(cls, db: AsyncSession, doc_id: int, **kwargs):
+    async def update_status(cls, db: AsyncSession, doc_id: int, **kwargs) -> None:
+        await db.execute(
+            update(RagDocument).where(RagDocument.doc_id == doc_id).values(**kwargs)
+        )
+
+    @classmethod
+    async def update_metadata(cls, db: AsyncSession, doc_id: int, **kwargs) -> None:
+        """更新文档书目元数据（与状态字段共用同一更新通道）。"""
         await db.execute(
             update(RagDocument).where(RagDocument.doc_id == doc_id).values(**kwargs)
         )
