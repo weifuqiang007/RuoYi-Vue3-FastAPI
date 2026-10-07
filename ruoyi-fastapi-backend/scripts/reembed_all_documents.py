@@ -11,6 +11,11 @@
 """
 
 import asyncio
+import sys
+from pathlib import Path
+
+# 允许从任意目录直接运行该脚本（把 backend 根目录加入模块搜索路径）
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select
 
@@ -28,16 +33,18 @@ async def main() -> None:
             .order_by(RagDocument.doc_id)
         )
         docs = list(result.scalars().all())
-        print(f'共 {len(docs)} 个文档待重新向量化')
+        # 提交后 ORM 对象会过期，先把需要的标量提取出来，避免 MissingGreenlet
+        doc_infos = [(doc.doc_id, doc.doc_name) for doc in docs]
+        print(f'共 {len(doc_infos)} 个文档待重新向量化')
 
-        for index, doc in enumerate(docs, start=1):
-            print(f'[{index}/{len(docs)}] 处理文档 {doc.doc_id}: {doc.doc_name}')
+        for index, (doc_id, doc_name) in enumerate(doc_infos, start=1):
+            print(f'[{index}/{len(doc_infos)}] 处理文档 {doc_id}: {doc_name}')
             try:
-                await DocumentService.process_document(db, doc.doc_id)
+                await DocumentService.process_document(db, doc_id)
                 await db.commit()
-                print(f'  文档 {doc.doc_id} 处理完成')
+                print(f'  文档 {doc_id} 处理完成')
             except Exception:
-                logger.exception(f'文档 {doc.doc_id} 重新向量化失败')
+                logger.exception(f'文档 {doc_id} 重新向量化失败')
                 await db.rollback()
 
     await async_engine.dispose()
